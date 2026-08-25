@@ -1,0 +1,15 @@
+import uuid
+
+from pydantic import BaseModel, ConfigDict
+
+
+class ProductOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    merchant_id: uuid.UUID
+    name: str
+    description: str | None
+    price: int  # paise
+    currency: str
+    stock: int | None

@@ -8,6 +8,6 @@ router = APIRouter()
 
 
 @router.get("/health")
-def health(db: Session = Depends(get_db)) -> dict:  # noqa: B008 — idiomatic FastAPI DI
+def health(db: Session = Depends(get_db)) -> dict:
     db.execute(text("SELECT 1"))
     return {"status": "ok"}

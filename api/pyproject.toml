@@ -11,6 +11,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    "razorpay>=1.4",
 ]
 
 [dependency-groups]
@@ -23,6 +24,10 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# B008: Depends(...) in a default arg is the standard FastAPI DI pattern, not a bug.
+ignore = ["B008"]
 
 [build-system]
 requires = ["hatchling"]
