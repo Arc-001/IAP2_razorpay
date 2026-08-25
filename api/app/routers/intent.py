@@ -41,6 +41,8 @@ def get_intent(mandate_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.post("/{mandate_id}/confirm", response_model=IntentMandateOut)
 def confirm(mandate_id: uuid.UUID, db: Session = Depends(get_db)):
+    if get_intent_mandate(db, mandate_id) is None:
+        raise HTTPException(status_code=404, detail="Intent mandate not found")
     try:
         return confirm_intent(db, mandate_id)
     except ValueError as e:
