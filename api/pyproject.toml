@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "razorpay>=1.4",
+    "openai>=1.50",
 ]
 
 [dependency-groups]

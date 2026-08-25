@@ -15,5 +15,11 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
 
+    # LLM tool-calling goes through OpenRouter (OpenAI-compatible API), not
+    # a direct Anthropic SDK call — see CLAUDE.md Commands note on this deviation.
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "google/gemini-3.7-flash"
+
 
 settings = Settings()
