@@ -1,0 +1,393 @@
+import json
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+from app.adapters.payment_provider import ChargeResult
+from app.models import CartMandate, Customer, IntentMandate, Merchant, Product
+from app.orchestrator import orchestrator as orchestrator_module
+from app.orchestrator.context import MandateContext
+from app.orchestrator.orchestrator import run_turn
+from app.orchestrator.state import AgentState
+
+
+def _tool_call(call_id, name, arguments):
+    return SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=json.dumps(arguments)))
+
+
+def _message(content=None, tool_calls=None):
+    return SimpleNamespace(content=content, tool_calls=tool_calls or [])
+
+
+def _response(message):
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class FakeOpenAIClient:
+    def __init__(self, responses):
+        self._responses = iter(responses)
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        return next(self._responses)
+
+
+def _patch_client(monkeypatch, responses):
+    fake = FakeOpenAIClient(responses)
+    monkeypatch.setattr(orchestrator_module, "_client", lambda: fake)
+    return fake
+
+
+def _customer(db_session, saved_address=None) -> Customer:
+    customer = Customer(name="Test", saved_address=saved_address)
+    db_session.add(customer)
+    db_session.flush()
+    return customer
+
+
+def _confirmed_intent(db_session, customer, budget_paise=None) -> IntentMandate:
+    intent = IntentMandate(
+        customer_id=customer.id,
+        raw_text="x",
+        structured_json={"budget_paise": budget_paise},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(intent)
+    db_session.flush()
+    return intent
+
+
+def test_drafting_intent_only_exposes_propose_intent(monkeypatch, db_session):
+    fake = _patch_client(
+        monkeypatch, [_response(_message(content="Tell me more about what you're looking for."))]
+    )
+
+    result = run_turn(db_session, MandateContext(), "I want some earbuds")
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"propose_intent"}
+    assert result.state == AgentState.DRAFTING_INTENT
+    assert result.reply == "Tell me more about what you're looking for."
+
+
+def test_propose_intent_tool_call_advances_state_and_persists(monkeypatch, db_session):
+    call = _tool_call(
+        "call_1",
+        "propose_intent",
+        {"product_query": "wireless earbuds", "quantity": 1, "budget_paise": 300000, "constraints": []},
+    )
+    _patch_client(
+        monkeypatch,
+        [
+            _response(_message(tool_calls=[call])),
+            _response(_message(content="I've drafted your intent. Confirm?")),
+        ],
+    )
+
+    result = run_turn(db_session, MandateContext(), "I want wireless earbuds under 3000 rupees")
+
+    assert result.state == AgentState.AWAITING_INTENT_OK
+    assert result.context.intent_id is not None
+    assert result.tool_calls[0]["tool"] == "propose_intent"
+    assert result.tool_calls[0]["output"]["status"] == "draft"
+
+
+def test_awaiting_intent_ok_only_exposes_confirm_intent(monkeypatch, db_session):
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id,
+        raw_text="x",
+        structured_json={"budget_paise": None},
+        status="draft",
+    )
+    db_session.add(intent)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="ok"))])
+    run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "looks good")
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"confirm_intent"}
+
+
+def test_confirm_intent_via_tool_call_advances_to_building_cart(monkeypatch, db_session):
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id, raw_text="x", structured_json={"budget_paise": None}, status="draft"
+    )
+    db_session.add(intent)
+    db_session.commit()
+
+    call = _tool_call("call_1", "confirm_intent", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Confirmed."))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "yes confirm"
+    )
+
+    assert result.state == AgentState.BUILDING_CART
+    db_session.refresh(intent)
+    assert intent.status == "confirmed"
+
+
+def test_illegal_tool_call_is_rejected_not_executed(monkeypatch, db_session):
+    """Defense in depth: even if the model emits a tool name not valid for
+    the current state, it must not be dispatched."""
+    call = _tool_call("call_1", "confirm_cart", {})  # not valid in DRAFTING_INTENT
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="I can't do that yet."))],
+    )
+
+    result = run_turn(db_session, MandateContext(), "please pay now")
+
+    assert result.tool_calls[0]["output"]["error"].startswith("'confirm_cart' is not available")
+    assert result.state == AgentState.DRAFTING_INTENT
+
+
+def test_building_cart_exposes_search_and_propose_cart(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="ok"))])
+    run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "show me options")
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"search_catalog", "propose_cart"}
+
+
+def test_search_catalog_tool_returns_matching_products(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    product = Product(merchant_id=merchant.id, name="Power Bank", description=None, price=100000, stock=5)
+    db_session.add(product)
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "search_catalog", {"query": "power"})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Found one."))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "any power banks?"
+    )
+
+    assert result.tool_calls[0]["output"]["products"][0]["name"] == "Power Bank"
+
+
+def test_propose_cart_advances_to_awaiting_cart_ok(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    product = Product(merchant_id=merchant.id, name="Power Bank", description=None, price=100000, stock=5)
+    db_session.add(product)
+    db_session.flush()
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "propose_cart", {"items": [{"product_id": str(product.id), "quantity": 1}]})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Here's your cart."))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "add the power bank"
+    )
+
+    assert result.state == AgentState.AWAITING_CART_OK
+    assert result.context.cart_id is not None
+
+
+def test_confirm_cart_budget_guard_surfaces_as_tool_error_not_crash(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer, budget_paise=10000)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=99999,
+        shipping_address={"line1": "x"},
+        status="draft",
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    call = _tool_call("call_1", "confirm_cart", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="That's over budget."))],
+    )
+
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id),
+        "confirm it",
+    )
+
+    assert "exceeds intent budget" in result.tool_calls[0]["output"]["error"]
+    assert result.state == AgentState.AWAITING_CART_OK
+    db_session.refresh(cart)
+    assert cart.status == "draft"
+
+
+def test_executing_payment_exposes_create_and_check(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="ok"))])
+    run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id), "pay now"
+    )
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"create_payment", "check_payment_status"}
+
+
+def test_create_payment_tool_dispatches_to_adapter(monkeypatch, db_session):
+    class FakeProvider:
+        def create_charge(self, amount, currency, notes):
+            return ChargeResult(
+                reference="order_fake",
+                adapter="standard_checkout",
+                client_payload={"order_id": "order_fake", "key_id": "k", "amount": amount, "currency": currency},
+            )
+
+        def verify(self, payload):
+            return True
+
+    monkeypatch.setattr("app.services.payment_mandate.StandardCheckoutAdapter", FakeProvider)
+
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    call = _tool_call("call_1", "create_payment", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Here's your payment link."))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id), "pay now"
+    )
+
+    assert result.context.payment_id is not None
+    assert result.tool_calls[0]["output"]["client_payload"]["order_id"] == "order_fake"
+    assert result.state == AgentState.EXECUTING_PAYMENT
+
+
+def test_terminal_state_exposes_no_tools(monkeypatch, db_session):
+    from app.models import PaymentMandate
+
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.flush()
+    payment = PaymentMandate(cart_mandate_id=cart.id, amount=10000, status="executed")
+    db_session.add(payment)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="All done!"))])
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id, payment_id=payment.id),
+        "thanks",
+    )
+
+    assert fake.calls[0]["tools"] is None
+    assert result.state == AgentState.TERMINAL
+
+
+def test_new_messages_thread_full_tool_round_for_history(monkeypatch, db_session):
+    """The caller must be able to reconstruct correct multi-turn context by
+    appending new_messages verbatim — dropping tool results (e.g. keeping
+    only the reply text) loses details like exact product ids."""
+    call = _tool_call("call_1", "search_catalog", {"query": "earbuds"})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Here's what we found."))],
+    )
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "any earbuds?"
+    )
+
+    roles = [m["role"] for m in result.new_messages]
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    assert result.new_messages[0]["content"] == "any earbuds?"
+    assert result.new_messages[2]["tool_call_id"] == "call_1"
+    assert json.loads(result.new_messages[2]["content"])["products"] == []
+    assert result.new_messages[-1]["content"] == "Here's what we found."
+
+
+def test_new_messages_for_plain_reply_has_no_tool_messages(monkeypatch, db_session):
+    _patch_client(monkeypatch, [_response(_message(content="Tell me more."))])
+
+    result = run_turn(db_session, MandateContext(), "hi")
+
+    assert [m["role"] for m in result.new_messages] == ["user", "assistant"]
+
+
+def test_fallback_reply_used_when_model_returns_empty_summary(monkeypatch, db_session):
+    """Some OpenRouter backends occasionally return empty content on the
+    post-tool-call summary completion — never surface that as an empty
+    reply to the human."""
+    call = _tool_call("call_1", "confirm_intent", {})
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id, raw_text="x", structured_json={"budget_paise": None}, status="draft"
+    )
+    db_session.add(intent)
+    db_session.commit()
+    _patch_client(monkeypatch, [_response(_message(tool_calls=[call])), _response(_message(content=""))])
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "confirm"
+    )
+
+    assert result.reply == "confirm_intent completed."
