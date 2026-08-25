@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IntentExtraction(BaseModel):
@@ -22,3 +25,21 @@ class IntentExtractionRequest(BaseModel):
 
 class IntentExtractionResponse(IntentExtraction):
     raw_text: str
+
+
+class IntentDraftRequest(BaseModel):
+    raw_text: str
+    customer_id: uuid.UUID | None = None
+
+
+class IntentMandateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    customer_id: uuid.UUID
+    raw_text: str | None
+    structured_json: dict | None
+    status: str
+    signature: str | None
+    created_at: datetime
+    confirmed_at: datetime | None
