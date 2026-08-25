@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import cart, catalog, health, intent, payment
+from app.routers import cart, catalog, health, intent, payment, webhooks
 
 app = FastAPI(title="AP2 Agentic Commerce API")
 
@@ -9,3 +9,4 @@ app.include_router(catalog.router)
 app.include_router(intent.router)
 app.include_router(cart.router)
 app.include_router(payment.router)
+app.include_router(webhooks.router)
