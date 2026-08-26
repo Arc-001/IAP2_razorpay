@@ -39,8 +39,25 @@ class OrchestratorTurnResult:
     causes the model to lose track mid-flow."""
 
 
+UNAVAILABLE_REPLY = "I'm having trouble reaching the assistant right now — please try that again in a moment."
+
+
 def _client() -> OpenAI:
     return OpenAI(base_url=settings.openrouter_base_url, api_key=settings.openrouter_api_key)
+
+
+def _safe_complete(client: OpenAI, **kwargs):
+    """Some OpenRouter provider routes occasionally return a response with
+    `choices=None` (observed live, not just in theory) rather than raising —
+    a bare `response.choices[0]` then crashes the whole request with an
+    unhandled 500, even though nothing has been persisted yet at that point.
+    Retry once (transient, not a real error condition); if it still comes
+    back empty, let the caller fall back gracefully instead of blowing up."""
+    for _ in range(2):
+        response = client.chat.completions.create(**kwargs)
+        if response.choices:
+            return response
+    return None
 
 
 def _fallback_reply(tool_call_log: list[dict]) -> str:
@@ -70,11 +87,17 @@ def run_turn(
     new_messages = [{"role": "user", "content": user_message}]
 
     client = _client()
-    response = client.chat.completions.create(
+    response = _safe_complete(
+        client,
         model=settings.openrouter_model,
         messages=messages,
         tools=[t.schema for t in tools] if tools else None,
     )
+    if response is None:
+        new_messages.append({"role": "assistant", "content": UNAVAILABLE_REPLY})
+        return OrchestratorTurnResult(
+            state=state, context=context, reply=UNAVAILABLE_REPLY, tool_calls=[], new_messages=new_messages
+        )
     message = response.choices[0].message
 
     tool_call_log = []
@@ -119,11 +142,8 @@ def run_turn(
         # summary rather than letting the model chain calls unbounded.
         # (tool_choice="none" without a tools list is unreliable across
         # OpenRouter backends and produced empty replies in testing.)
-        final = client.chat.completions.create(
-            model=settings.openrouter_model,
-            messages=messages,
-        )
-        reply = final.choices[0].message.content or _fallback_reply(tool_call_log)
+        final = _safe_complete(client, model=settings.openrouter_model, messages=messages)
+        reply = (final.choices[0].message.content if final else None) or _fallback_reply(tool_call_log)
     else:
         reply = message.content or ""
 
