@@ -2,12 +2,19 @@
 import { computed } from 'vue'
 import type { CatalogProduct } from '@/lib/types'
 import { formatPaise } from '@/lib/types'
+import { useConversationStore } from '@/stores/conversation'
 
 const props = defineProps<{
   products: CatalogProduct[]
 }>()
 
 const sorted = computed(() => [...props.products].sort((a, b) => a.price - b.price))
+
+const conversation = useConversationStore()
+
+function select(product: CatalogProduct) {
+  conversation.sendMessage(`Add 1 ${product.name} from ${product.merchant_name} to my order.`)
+}
 </script>
 
 <template>
@@ -17,7 +24,7 @@ const sorted = computed(() => [...props.products].sort((a, b) => a.price - b.pri
       <div
         v-for="product in sorted"
         :key="product.id"
-        class="rounded-md border border-slate-200 p-2.5 text-sm"
+        class="flex flex-col rounded-md border border-slate-200 p-2.5 text-sm"
       >
         <div class="flex items-start justify-between gap-2">
           <span class="font-medium text-slate-800">{{ product.name }}</span>
@@ -25,6 +32,13 @@ const sorted = computed(() => [...props.products].sort((a, b) => a.price - b.pri
         </div>
         <div class="mt-1 text-xs text-slate-500">{{ product.merchant_name }}</div>
         <div v-if="product.description" class="mt-1 text-xs text-slate-500">{{ product.description }}</div>
+        <button
+          class="mt-2 self-start rounded bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-700"
+          :disabled="conversation.isSending"
+          @click="select(product)"
+        >
+          Select
+        </button>
       </div>
     </div>
   </div>

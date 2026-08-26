@@ -3,22 +3,22 @@ existing service function — the orchestrator adds no new business logic,
 only exposure gating and dispatch. The model is never trusted with mandate
 ids as arguments; ids live in MandateContext and flow through the loop.
 
-Deliberately not yet implemented: revise_intent, revise_cart — scoped out
-of SCRUM-18/19 (the fix is to re-draft). Adding either later is one
-registry entry, not a redesign.
-
-suggest_upsell/accept_upsell/decline_upsell (SCRUM-27) are registered under
-BUILDING_CART, not AWAITING_CART_OK as CLAUDE.md §7's table literally lists
-them. That table's own prose guard is more specific and takes precedence:
-"suggest_upsell must resolve ... before the state moves to AWAITING_CART_OK."
-There's no sessions table (state.py) to persist "an upsell was offered and
-is pending" across a state boundary, so the only way to make that guard
-structural rather than prompted is to keep all three tools — and therefore
-the whole offer/accept/decline exchange — inside BUILDING_CART, before
-propose_cart ever creates the draft cart row. This also gives the stronger,
-explicitly-required guarantee for free: since none of the three tools are
-reachable once a cart exists, an upsell item can structurally never be
-added after the cart is confirmed (or even just drafted).
+There is no dedicated revise_intent/revise_cart tool (scoped out of
+SCRUM-18/19) — instead, propose_intent/propose_cart stay reachable all the
+way through AWAITING_INTENT_OK/AWAITING_CART_OK, not just in the drafting
+states. Calling either again before confirmation simply creates a fresh
+mandate row and supersedes the old one in MandateContext (see `replace(...,
+intent_id=...)`/`cart_id=...` in the handlers below) — cheap and safe,
+since nothing is signed yet. This is deliberately looser than an earlier
+version of this file, which locked propose_intent/propose_cart out the
+moment a draft existed at all: that made "actually, also get me a phone
+case" or "wait, make it fast-charging" before confirming a dead end the
+model could only apologize about. The guarantee that actually matters —
+CLAUDE.md's literal wording is "never add an upsell item after the cart is
+already confirmed" — only requires locking these out once CONFIRMED
+(EXECUTING_PAYMENT and beyond), which dropping suggest_upsell/accept_upsell/
+decline_upsell/search_catalog/propose_cart from every state after
+AWAITING_CART_OK still does structurally.
 """
 
 import uuid
@@ -385,9 +385,16 @@ _CANCEL_PAYMENT = ToolDef(
 
 TOOLS_BY_STATE: dict[AgentState, list[ToolDef]] = {
     AgentState.DRAFTING_INTENT: [_PROPOSE_INTENT],
-    AgentState.AWAITING_INTENT_OK: [_CONFIRM_INTENT],
+    AgentState.AWAITING_INTENT_OK: [_PROPOSE_INTENT, _CONFIRM_INTENT],
     AgentState.BUILDING_CART: [_SEARCH_CATALOG, _SUGGEST_UPSELL, _ACCEPT_UPSELL, _DECLINE_UPSELL, _PROPOSE_CART],
-    AgentState.AWAITING_CART_OK: [_CONFIRM_CART],
+    AgentState.AWAITING_CART_OK: [
+        _SEARCH_CATALOG,
+        _SUGGEST_UPSELL,
+        _ACCEPT_UPSELL,
+        _DECLINE_UPSELL,
+        _PROPOSE_CART,
+        _CONFIRM_CART,
+    ],
     AgentState.EXECUTING_PAYMENT: [_CREATE_PAYMENT, _CHECK_PAYMENT_STATUS],
     AgentState.PAYMENT_FAILED: [_RETRY_PAYMENT, _CANCEL_PAYMENT],
     AgentState.TERMINAL: [],

@@ -111,7 +111,42 @@ def test_propose_intent_tool_call_advances_state_and_persists(monkeypatch, db_se
     assert result.tool_calls[0]["output"]["status"] == "draft"
 
 
-def test_awaiting_intent_ok_only_exposes_confirm_intent(monkeypatch, db_session):
+def test_redrafting_intent_before_confirm_supersedes_the_old_draft(monkeypatch, db_session):
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id,
+        raw_text="charger",
+        structured_json={"product_query": "charger", "quantity": 1, "budget_paise": None, "constraints": []},
+        status="draft",
+    )
+    db_session.add(intent)
+    db_session.commit()
+
+    call = _tool_call(
+        "call_1",
+        "propose_intent",
+        {"product_query": "usb-c fast charger", "quantity": 1, "budget_paise": None, "constraints": ["type-c", "fast"]},
+    )
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Updated. Confirm?"))],
+    )
+
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id),
+        "actually, make it type-c and fast",
+    )
+
+    assert result.state == AgentState.AWAITING_INTENT_OK
+    assert result.context.intent_id != intent.id
+    assert result.tool_calls[0]["output"]["structured"]["constraints"] == ["type-c", "fast"]
+
+
+def test_awaiting_intent_ok_exposes_propose_and_confirm_intent(monkeypatch, db_session):
+    """propose_intent stays available so the customer can redraft with new
+    detail before confirming (e.g. "actually make it fast-charging") — safe
+    since nothing is signed until confirm_intent."""
     customer = _customer(db_session)
     intent = IntentMandate(
         customer_id=customer.id,
@@ -126,7 +161,7 @@ def test_awaiting_intent_ok_only_exposes_confirm_intent(monkeypatch, db_session)
     run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "looks good")
 
     tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
-    assert tool_names == {"confirm_intent"}
+    assert tool_names == {"propose_intent", "confirm_intent"}
 
 
 def test_confirm_intent_via_tool_call_advances_to_building_cart(monkeypatch, db_session):
@@ -227,6 +262,47 @@ def test_propose_cart_advances_to_awaiting_cart_ok(monkeypatch, db_session):
     assert result.context.cart_id is not None
 
 
+def test_revising_draft_cart_adds_a_second_item(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    charger = Product(merchant_id=merchant.id, name="Charger", description=None, price=79900, stock=5)
+    phone_case = Product(merchant_id=merchant.id, name="Phone Case", description=None, price=39900, stock=5)
+    db_session.add_all([charger, phone_case])
+    db_session.flush()
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[{"product_id": str(charger.id), "name": "Charger", "unit_price": 79900, "quantity": 1, "line_total": 79900}],
+        total_amount=84800,
+        shipping_address={"line1": "x"},
+        status="draft",
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    call = _tool_call(
+        "call_1",
+        "propose_cart",
+        {"items": [{"product_id": str(charger.id), "quantity": 1}, {"product_id": str(phone_case.id), "quantity": 1}]},
+    )
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Added the phone case too."))],
+    )
+
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id),
+        "can you get me a phone case as well",
+    )
+
+    assert result.state == AgentState.AWAITING_CART_OK
+    assert result.context.cart_id != cart.id  # superseded by a fresh draft
+    assert len(result.tool_calls[0]["output"]["items"]) == 2
+
+
 def test_suggest_upsell_returns_other_merchant_products(monkeypatch, db_session):
     merchant = Merchant(name="M")
     db_session.add(merchant)
@@ -312,9 +388,13 @@ def test_decline_upsell_acknowledges_without_side_effects(monkeypatch, db_sessio
     assert result.state == AgentState.BUILDING_CART
 
 
-def test_awaiting_cart_ok_does_not_expose_upsell_tools(monkeypatch, db_session):
-    """Structural guarantee (CLAUDE.md §7 guard, SCRUM-27): once a cart
-    exists, an upsell can never be added — the tools simply aren't there."""
+def test_awaiting_cart_ok_exposes_revision_tools_and_confirm(monkeypatch, db_session):
+    """A draft (unconfirmed) cart can still be revised — search/upsell/
+    propose_cart stay available alongside confirm_cart so "add a phone case
+    too" before confirming isn't a dead end. The real guarantee (never add
+    an upsell item after the cart is CONFIRMED) is enforced by these tools
+    disappearing entirely once EXECUTING_PAYMENT begins, not by locking them
+    out the moment a draft merely exists."""
     customer = _customer(db_session, saved_address={"line1": "x"})
     intent = _confirmed_intent(db_session, customer)
     cart = CartMandate(
@@ -333,10 +413,41 @@ def test_awaiting_cart_ok_does_not_expose_upsell_tools(monkeypatch, db_session):
     )
 
     tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
-    assert tool_names == {"confirm_cart"}
+    assert tool_names == {
+        "search_catalog",
+        "suggest_upsell",
+        "accept_upsell",
+        "decline_upsell",
+        "propose_cart",
+        "confirm_cart",
+    }
+
+
+def test_confirmed_cart_no_longer_exposes_revision_tools(monkeypatch, db_session):
+    """Once the cart is actually confirmed, revision tools vanish for good —
+    this is the guarantee that matters, not locking a mere draft."""
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="ok"))])
+    run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id), "add one more"
+    )
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert "propose_cart" not in tool_names
     assert "suggest_upsell" not in tool_names
-    assert "accept_upsell" not in tool_names
-    assert "decline_upsell" not in tool_names
 
 
 def test_confirm_cart_budget_guard_surfaces_as_tool_error_not_crash(monkeypatch, db_session):
