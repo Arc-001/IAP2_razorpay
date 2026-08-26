@@ -6,3 +6,6 @@ api/.venv/
 node_modules/
 .next/
 .DS_Store
+
+# start.sh/stop.sh runtime artifacts
+.run/
