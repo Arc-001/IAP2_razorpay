@@ -25,5 +25,9 @@ class Settings(BaseSettings):
     intent_expiry_minutes: int = 15
     price_rise_threshold: float = 0.10
 
+    # Browser origins allowed to call this API (SCRUM-37) — 5173 is Vite's
+    # default dev port for the customer chat frontend (web/).
+    cors_origins: list[str] = ["http://localhost:5173"]
+
 
 settings = Settings()

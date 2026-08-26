@@ -1,8 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.routers import audit, cart, catalog, chat, health, intent, payment, webhooks
 
 app = FastAPI(title="AP2 Agentic Commerce API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,  # no cookies/session auth anywhere in this system
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health.router)
 app.include_router(catalog.router)
