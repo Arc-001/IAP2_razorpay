@@ -48,7 +48,12 @@ const acceptedUpsellQuantity = computed(() => output.value.quantity as number)
 </script>
 
 <template>
-  <div v-if="isStructuralError" class="px-1 text-xs text-slate-400">One moment…</div>
+  <!-- A structural (defense-in-depth) error is an internal safety-net trip,
+       not information for the customer — one tool call in a multi-call turn
+       hitting it doesn't mean the turn failed (the reply text and any other
+       tool cards this turn already carry the real outcome), so render
+       nothing rather than a stray, context-free message. -->
+  <template v-if="isStructuralError" />
 
   <div v-else-if="isError" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
     {{ output.error }}

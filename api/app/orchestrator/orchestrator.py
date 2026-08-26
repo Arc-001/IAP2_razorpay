@@ -31,6 +31,16 @@ SYSTEM_PROMPT = (
     "('hmm?', 'what?', silence-equivalent) is not consent; ask them to confirm "
     "plainly instead of guessing. "
     "\n\n"
+    "You can call more than one tool in a row within the same reply when it "
+    "genuinely moves the customer forward — e.g. the instant confirm_intent "
+    "succeeds, go ahead and call search_catalog too and show results in that "
+    "same reply, rather than stopping at 'confirmed' and waiting to be asked. "
+    "Likewise, once an upsell is accepted or declined, go straight into "
+    "propose_cart in that same reply instead of pausing first. Never chain "
+    "into confirm_intent, confirm_cart, or create_payment on your own "
+    "initiative, though — those only ever fire in direct response to the "
+    "customer's own explicit words in this turn. "
+    "\n\n"
     "When calling search_catalog, build the query from the product itself (e.g. "
     "'usb-c charger'), never from the customer's literal sentence verbatim. "
     "search_catalog spans every merchant — when the same or a similar product "
@@ -103,37 +113,67 @@ def _fallback_reply(tool_call_log: list[dict]) -> str:
     return " ".join(parts) or "Okay."
 
 
+# Multiple tool-calling rounds are allowed within a single turn (e.g.
+# confirm_intent immediately followed by search_catalog, or decline_upsell
+# immediately followed by propose_cart) — state is re-derived after every
+# round, so the tools on offer always reflect what's actually legal *now*.
+# This is safe, not a loophole: nothing that requires human sign-off can
+# repeat within a turn, because the tool that performs it (confirm_intent,
+# confirm_cart, ...) simply disappears from the newly-derived state once
+# it's been called — the model can't re-trigger it, only move forward.
+# MAX_ROUNDS is a pure safety valve against a model that keeps calling
+# tools without ever settling on a reply; it should never normally bind.
+MAX_ROUNDS = 5
+
+
 def run_turn(
     db: Session,
     context: MandateContext,
     user_message: str,
     history: list[dict] | None = None,
 ) -> OrchestratorTurnResult:
-    state = derive_state(db, context.intent_id, context.cart_id, context.payment_id)
-    tools = get_tools_for_state(state)
-
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + (history or [])
     messages.append({"role": "user", "content": user_message})
     new_messages = [{"role": "user", "content": user_message}]
 
     client = _client()
-    response = _safe_complete(
-        client,
-        model=settings.openrouter_model,
-        messages=messages,
-        tools=[t.schema for t in tools] if tools else None,
-    )
-    if response is None:
-        new_messages.append({"role": "assistant", "content": UNAVAILABLE_REPLY})
-        return OrchestratorTurnResult(
-            state=state, context=context, reply=UNAVAILABLE_REPLY, tool_calls=[], new_messages=new_messages
-        )
-    message = response.choices[0].message
-
-    tool_call_log = []
     current_context = context
+    tool_call_log: list[dict] = []
+    state = derive_state(db, current_context.intent_id, current_context.cart_id, current_context.payment_id)
 
-    if message.tool_calls:
+    for round_num in range(MAX_ROUNDS):
+        tools = get_tools_for_state(state)
+        response = _safe_complete(
+            client,
+            model=settings.openrouter_model,
+            messages=messages,
+            tools=[t.schema for t in tools] if tools else None,
+        )
+        if response is None:
+            # If tools already ran this turn (e.g. confirm_intent succeeded
+            # before this round's completion came back empty), say what
+            # actually happened instead of a generic "can't reach it" — the
+            # mandate really was signed, telling the customer otherwise
+            # would be actively misleading.
+            reply = _fallback_reply(tool_call_log) if tool_call_log else UNAVAILABLE_REPLY
+            new_messages.append({"role": "assistant", "content": reply})
+            new_state = derive_state(
+                db, current_context.intent_id, current_context.cart_id, current_context.payment_id
+            )
+            return OrchestratorTurnResult(
+                state=new_state,
+                context=current_context,
+                reply=reply,
+                tool_calls=tool_call_log,
+                new_messages=new_messages,
+            )
+        message = response.choices[0].message
+
+        if not message.tool_calls:
+            reply = message.content or (_fallback_reply(tool_call_log) if tool_call_log else "")
+            new_messages.append({"role": "assistant", "content": reply})
+            break
+
         assistant_tool_message = {
             "role": "assistant",
             "content": message.content,
@@ -167,17 +207,16 @@ def run_turn(
             messages.append(tool_message)
             new_messages.append(tool_message)
 
-        # One tool round per turn — omitting `tools` here means no further
-        # tool call is structurally possible, forcing a plain-language
-        # summary rather than letting the model chain calls unbounded.
-        # (tool_choice="none" without a tools list is unreliable across
-        # OpenRouter backends and produced empty replies in testing.)
-        final = _safe_complete(client, model=settings.openrouter_model, messages=messages)
-        reply = (final.choices[0].message.content if final else None) or _fallback_reply(tool_call_log)
-    else:
-        reply = message.content or ""
+        # Tools may have advanced the state (e.g. confirm_intent just ran) —
+        # re-derive before the next round so the model sees what's legal now.
+        state = derive_state(db, current_context.intent_id, current_context.cart_id, current_context.payment_id)
 
-    new_messages.append({"role": "assistant", "content": reply})
+        if round_num == MAX_ROUNDS - 1:
+            # Safety valve tripped — force a plain-language summary. Omitting
+            # `tools` here means no further call is structurally possible.
+            final = _safe_complete(client, model=settings.openrouter_model, messages=messages)
+            reply = (final.choices[0].message.content if final else None) or _fallback_reply(tool_call_log)
+            new_messages.append({"role": "assistant", "content": reply})
 
     new_state = derive_state(db, current_context.intent_id, current_context.cart_id, current_context.payment_id)
     return OrchestratorTurnResult(

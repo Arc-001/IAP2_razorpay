@@ -187,6 +187,75 @@ def test_confirm_intent_via_tool_call_advances_to_building_cart(monkeypatch, db_
     assert intent.status == "confirmed"
 
 
+def test_confirm_intent_auto_chains_into_search_catalog_same_turn(monkeypatch, db_session):
+    """The fix for "it stops after confirming and I have to prod it" — a
+    non-mutating tool (search_catalog) can fire in the same turn right
+    after confirm_intent, without a second user message, since state is
+    re-derived between rounds and confirm_intent isn't callable again."""
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    db_session.add(Product(merchant_id=merchant.id, name="Charger", description=None, price=79900, stock=5))
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id, raw_text="x", structured_json={"budget_paise": None}, status="draft"
+    )
+    db_session.add(intent)
+    db_session.commit()
+
+    confirm_call = _tool_call("call_1", "confirm_intent", {})
+    search_call = _tool_call("call_2", "search_catalog", {"query": "charger"})
+    fake = _patch_client(
+        monkeypatch,
+        [
+            _response(_message(tool_calls=[confirm_call])),
+            _response(_message(tool_calls=[search_call])),
+            _response(_message(content="Here's what I found.")),
+        ],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "yes confirm"
+    )
+
+    assert [tc["tool"] for tc in result.tool_calls] == ["confirm_intent", "search_catalog"]
+    assert result.reply == "Here's what I found."
+    assert result.state == AgentState.BUILDING_CART
+    # second round's tool list must reflect the NEW state, not the old one
+    assert {t["function"]["name"] for t in fake.calls[1]["tools"]} == {
+        "search_catalog",
+        "suggest_upsell",
+        "accept_upsell",
+        "decline_upsell",
+        "propose_cart",
+    }
+
+
+def test_round_safety_valve_forces_a_reply_if_model_never_stops_calling_tools(monkeypatch, db_session):
+    customer = _customer(db_session)
+    intent = IntentMandate(
+        customer_id=customer.id, raw_text="x", structured_json={"budget_paise": None}, status="draft"
+    )
+    db_session.add(intent)
+    db_session.commit()
+
+    # confirm_intent only exists once (state changes after), so pad with
+    # search_catalog calls to simulate a model that just won't stop.
+    responses = [_response(_message(tool_calls=[_tool_call("call_1", "confirm_intent", {})]))]
+    for i in range(10):
+        responses.append(
+            _response(_message(tool_calls=[_tool_call(f"call_s{i}", "search_catalog", {"query": "x"})]))
+        )
+    _patch_client(monkeypatch, responses)
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "yes confirm"
+    )
+
+    assert result.reply  # never crashes, never hangs, always produces something
+    assert len(result.tool_calls) <= orchestrator_module.MAX_ROUNDS
+
+
 def test_illegal_tool_call_is_rejected_not_executed(monkeypatch, db_session):
     """Defense in depth: even if the model emits a tool name not valid for
     the current state, it must not be dispatched."""

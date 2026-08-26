@@ -3,7 +3,11 @@ import { getPaymentStatus } from '@/lib/api'
 import { useConversationStore } from '@/stores/conversation'
 
 const POLL_INTERVAL_MS = 2000
-const MAX_ATTEMPTS = 15 // ~30s
+// Observed real webhook latency through a cloudflared tunnel in testing ran
+// right up to ~30-32s — the previous 30s window (15 attempts) occasionally
+// gave up just before the webhook actually landed, leaving the customer to
+// ask again manually and still get a stale "pending". 45s gives real headroom.
+const MAX_ATTEMPTS = 23
 
 /** After a Razorpay Checkout success callback, poll GET /api/payment/{id}
  * directly (fast local feedback) until the async webhook resolves it, then
