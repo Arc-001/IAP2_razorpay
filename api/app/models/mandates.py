@@ -91,7 +91,9 @@ class CartMandate(Base):
 
 class PaymentMandate(Base):
     __tablename__ = "payment_mandates"
-    __table_args__ = (CheckConstraint("status IN ('pending','executed','failed')", name="payment_mandates_status_check"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','executed','failed','cancelled')", name="payment_mandates_status_check"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     cart_mandate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cart_mandates.id"))

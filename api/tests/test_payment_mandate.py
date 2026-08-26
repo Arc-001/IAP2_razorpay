@@ -4,8 +4,9 @@ from datetime import UTC, datetime
 import pytest
 
 from app.adapters.payment_provider import ChargeResult
-from app.models import AuditLog, CartMandate, Customer, IntentMandate
+from app.models import AuditLog, CartMandate, Customer, IntentMandate, PaymentMandate
 from app.services import payment_mandate as payment_mandate_module
+from app.services.payment_mandate import cancel_payment
 
 
 class FakeProvider:
@@ -107,6 +108,41 @@ def test_get_payment_after_create(client, db_session):
 def test_get_payment_not_found(client):
     response = client.get(f"/api/payment/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+def test_cancel_payment_marks_cancelled_and_records_audit(db_session):
+    cart = _make_cart(db_session)
+    payment = PaymentMandate(cart_mandate_id=cart.id, razorpay_ref="order_x", amount=cart.total_amount, status="failed")
+    db_session.add(payment)
+    db_session.commit()
+
+    result = cancel_payment(db_session, payment.id)
+
+    assert result.status == "cancelled"
+    assert result.resolved_at is not None
+    row = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.mandate_type == "payment", AuditLog.mandate_id == payment.id)
+        .one()
+    )
+    assert row.from_state == "failed"
+    assert row.to_state == "cancelled"
+    assert row.actor == "user"
+
+
+def test_cancel_payment_rejects_non_failed_payment(db_session):
+    cart = _make_cart(db_session)
+    payment = PaymentMandate(cart_mandate_id=cart.id, razorpay_ref="order_x", amount=cart.total_amount, status="pending")
+    db_session.add(payment)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="only a failed payment can be cancelled"):
+        cancel_payment(db_session, payment.id)
+
+
+def test_cancel_payment_rejects_unknown_payment(db_session):
+    with pytest.raises(LookupError):
+        cancel_payment(db_session, uuid.uuid4())
 
 
 def test_audit_log_records_pending_transition(client, db_session):

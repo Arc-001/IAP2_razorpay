@@ -23,6 +23,7 @@ from app.services.cart_mandate import confirm_cart as confirm_cart_service
 from app.services.cart_mandate import create_draft_cart
 from app.services.intent_mandate import confirm_intent as confirm_intent_service
 from app.services.intent_mandate import create_draft_intent_from_structured
+from app.services.payment_mandate import cancel_payment as cancel_payment_service
 from app.services.payment_mandate import create_payment_for_cart, get_payment_mandate
 
 ToolHandler = Callable[[Session, MandateContext, dict, str], ToolResult]
@@ -93,6 +94,23 @@ def _create_payment(db: Session, ctx: MandateContext, args: dict, user_message: 
         output={"id": str(payment.id), "status": payment.status, "client_payload": charge.client_payload},
         context=replace(ctx, payment_id=payment.id),
     )
+
+
+def _retry_payment(db: Session, ctx: MandateContext, args: dict, user_message: str) -> ToolResult:
+    """Same underlying operation as create_payment — a retry is just a new
+    payment attempt against the same (still-confirmed) cart. Distinct tool
+    name/description so the model reaches for it specifically after a
+    failure rather than re-deriving the same call."""
+    payment, charge = create_payment_for_cart(db, ctx.cart_id)
+    return ToolResult(
+        output={"id": str(payment.id), "status": payment.status, "client_payload": charge.client_payload},
+        context=replace(ctx, payment_id=payment.id),
+    )
+
+
+def _cancel_payment(db: Session, ctx: MandateContext, args: dict, user_message: str) -> ToolResult:
+    payment = cancel_payment_service(db, ctx.payment_id)
+    return ToolResult(output={"status": payment.status}, context=ctx)
 
 
 def _check_payment_status(db: Session, ctx: MandateContext, args: dict, user_message: str) -> ToolResult:
@@ -221,12 +239,37 @@ _CHECK_PAYMENT_STATUS = ToolDef(
     handler=_check_payment_status,
 )
 
+_RETRY_PAYMENT = ToolDef(
+    schema={
+        "type": "function",
+        "function": {
+            "name": "retry_payment",
+            "description": "After a payment failure, start a new payment attempt for the same confirmed cart.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    handler=_retry_payment,
+)
+
+_CANCEL_PAYMENT = ToolDef(
+    schema={
+        "type": "function",
+        "function": {
+            "name": "cancel_payment",
+            "description": "After a payment failure, cancel the transaction instead of retrying.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    handler=_cancel_payment,
+)
+
 TOOLS_BY_STATE: dict[AgentState, list[ToolDef]] = {
     AgentState.DRAFTING_INTENT: [_PROPOSE_INTENT],
     AgentState.AWAITING_INTENT_OK: [_CONFIRM_INTENT],
     AgentState.BUILDING_CART: [_SEARCH_CATALOG, _PROPOSE_CART],
     AgentState.AWAITING_CART_OK: [_CONFIRM_CART],
     AgentState.EXECUTING_PAYMENT: [_CREATE_PAYMENT, _CHECK_PAYMENT_STATUS],
+    AgentState.PAYMENT_FAILED: [_RETRY_PAYMENT, _CANCEL_PAYMENT],
     AgentState.TERMINAL: [],
 }
 

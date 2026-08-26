@@ -94,7 +94,7 @@ def test_pending_payment_is_executing_payment(db_session):
     assert derive_state(db_session, intent.id, cart.id, payment.id) == AgentState.EXECUTING_PAYMENT
 
 
-@pytest.mark.parametrize("status", ["executed", "failed"])
+@pytest.mark.parametrize("status", ["executed", "cancelled"])
 def test_resolved_payment_is_terminal(db_session, status):
     customer = _customer(db_session)
     intent = _confirmed_intent(db_session, customer)
@@ -104,6 +104,19 @@ def test_resolved_payment_is_terminal(db_session, status):
     db_session.commit()
 
     assert derive_state(db_session, intent.id, cart.id, payment.id) == AgentState.TERMINAL
+
+
+def test_failed_payment_is_payment_failed_not_terminal(db_session):
+    """A failed payment must not be a dead end (CLAUDE.md §8 step 10): the
+    human gets offered retry or cancel, not silence."""
+    customer = _customer(db_session)
+    intent = _confirmed_intent(db_session, customer)
+    cart = _confirmed_cart(db_session, intent)
+    payment = PaymentMandate(cart_mandate_id=cart.id, amount=100, status="failed")
+    db_session.add(payment)
+    db_session.commit()
+
+    assert derive_state(db_session, intent.id, cart.id, payment.id) == AgentState.PAYMENT_FAILED
 
 
 def test_unknown_intent_id_raises_lookup_error(db_session):

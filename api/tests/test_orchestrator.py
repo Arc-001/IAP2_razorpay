@@ -3,7 +3,15 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.adapters.payment_provider import ChargeResult
-from app.models import CartMandate, Customer, IntentMandate, Merchant, PriceHistory, Product
+from app.models import (
+    CartMandate,
+    Customer,
+    IntentMandate,
+    Merchant,
+    PaymentMandate,
+    PriceHistory,
+    Product,
+)
 from app.orchestrator import orchestrator as orchestrator_module
 from app.orchestrator.context import MandateContext
 from app.orchestrator.orchestrator import run_turn
@@ -392,6 +400,108 @@ def test_fallback_reply_used_when_model_returns_empty_summary(monkeypatch, db_se
     )
 
     assert result.reply == "confirm_intent completed."
+
+
+def _confirmed_cart(db_session, intent, total_amount=10000) -> CartMandate:
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=total_amount,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.commit()
+    return cart
+
+
+def _failed_payment(db_session, cart, amount=10000) -> PaymentMandate:
+    payment = PaymentMandate(cart_mandate_id=cart.id, razorpay_ref="order_old", amount=amount, status="failed")
+    db_session.add(payment)
+    db_session.commit()
+    return payment
+
+
+def test_payment_failed_exposes_retry_and_cancel_only(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = _confirmed_cart(db_session, intent)
+    payment = _failed_payment(db_session, cart)
+
+    fake = _patch_client(
+        monkeypatch, [_response(_message(content="Your payment didn't go through. Retry or cancel?"))]
+    )
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id, payment_id=payment.id),
+        "what happened?",
+    )
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"retry_payment", "cancel_payment"}
+    assert result.state == AgentState.PAYMENT_FAILED
+
+
+def test_retry_payment_creates_new_attempt_and_returns_to_executing(monkeypatch, db_session):
+    class FakeProvider:
+        def create_charge(self, amount, currency, notes):
+            return ChargeResult(
+                reference="order_retry",
+                adapter="standard_checkout",
+                client_payload={"order_id": "order_retry", "key_id": "k", "amount": amount, "currency": currency},
+            )
+
+        def verify(self, payload):
+            return True
+
+    monkeypatch.setattr("app.services.payment_mandate.StandardCheckoutAdapter", FakeProvider)
+
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = _confirmed_cart(db_session, intent)
+    old_payment = _failed_payment(db_session, cart)
+
+    call = _tool_call("call_1", "retry_payment", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Here's a fresh payment link."))],
+    )
+
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id, payment_id=old_payment.id),
+        "let's try again",
+    )
+
+    assert result.context.payment_id != old_payment.id
+    assert result.tool_calls[0]["output"]["client_payload"]["order_id"] == "order_retry"
+    assert result.state == AgentState.EXECUTING_PAYMENT
+
+
+def test_cancel_payment_tool_moves_to_terminal(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = _confirmed_cart(db_session, intent)
+    payment = _failed_payment(db_session, cart)
+
+    call = _tool_call("call_1", "cancel_payment", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Cancelled, no problem."))],
+    )
+
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id, payment_id=payment.id),
+        "let's cancel",
+    )
+
+    assert result.tool_calls[0]["output"]["status"] == "cancelled"
+    assert result.state == AgentState.TERMINAL
+    db_session.refresh(payment)
+    assert payment.status == "cancelled"
 
 
 def test_propose_cart_price_rise_guard_surfaces_as_tool_error(monkeypatch, db_session):

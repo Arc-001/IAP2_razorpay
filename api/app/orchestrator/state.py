@@ -16,6 +16,7 @@ class AgentState(StrEnum):
     BUILDING_CART = "BUILDING_CART"
     AWAITING_CART_OK = "AWAITING_CART_OK"
     EXECUTING_PAYMENT = "EXECUTING_PAYMENT"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
     TERMINAL = "TERMINAL"
 
 
@@ -29,8 +30,10 @@ def derive_state(
         payment = db.get(PaymentMandate, payment_id)
         if payment is None:
             raise LookupError(f"payment mandate {payment_id} not found")
-        if payment.status in ("executed", "failed"):
+        if payment.status in ("executed", "cancelled"):
             return AgentState.TERMINAL
+        if payment.status == "failed":
+            return AgentState.PAYMENT_FAILED
         return AgentState.EXECUTING_PAYMENT
 
     if cart_id is not None:
