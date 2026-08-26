@@ -44,7 +44,22 @@ from app.services.payment_mandate import cancel_payment as cancel_payment_servic
 from app.services.payment_mandate import create_payment_for_cart, get_payment_mandate
 from app.services.upsell import suggest_upsell_candidates
 
-mcp = FastMCP("ap2-agentic-commerce")
+mcp = FastMCP(
+    "ap2-agentic-commerce",
+    instructions=(
+        "Guide the customer through: propose_intent -> confirm_intent -> "
+        "search_catalog/propose_cart -> confirm_cart -> create_payment_link -> "
+        "check_payment_status. Always get explicit human confirmation before "
+        "confirm_intent and confirm_cart — never skip ahead on the model's own "
+        "judgment. search_catalog spans every merchant; when the same or a "
+        "similar product appears from more than one, point that out and "
+        "recommend the cheapest unless the customer prefers a specific "
+        "merchant. Before finalizing the cart, consider suggest_upsell once — "
+        "at most one relevant add-on, zero pressure if declined, never raised "
+        "again after propose_cart. If a payment fails, say so plainly and "
+        "offer retry_payment or cancel_payment — never go silent."
+    ),
+)
 
 
 @contextmanager
@@ -91,12 +106,19 @@ def confirm_intent(intent_id: str) -> dict:
 
 @mcp.tool()
 def search_catalog(query: str) -> dict:
-    """Search the merchant catalog for products matching a query."""
+    """Search across ALL merchants' catalogs for products matching a query. Results may include the same or a similar product from multiple merchants at different prices — when they do, point that out and recommend the cheapest one unless the customer has stated another preference."""
     with _db() as db:
         products = SqlAlchemyCatalogRepository(db).search(query)
         return {
             "products": [
-                {"id": str(p.id), "name": p.name, "price": p.price, "description": p.description}
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "price": p.price,
+                    "description": p.description,
+                    "merchant_id": str(p.merchant_id),
+                    "merchant_name": p.merchant_name,
+                }
                 for p in products
             ]
         }

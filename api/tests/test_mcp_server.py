@@ -141,7 +141,24 @@ def test_search_catalog_returns_matches(db_session):
 
     result = search_catalog("power")
 
-    assert result["products"][0]["name"] == "Power Bank"
+    found = result["products"][0]
+    assert found["name"] == "Power Bank"
+    assert found["merchant_name"] == "M"
+
+
+def test_search_catalog_spans_multiple_merchants(db_session):
+    merchant_a = Merchant(name="Merchant A")
+    merchant_b = Merchant(name="Merchant B")
+    db_session.add_all([merchant_a, merchant_b])
+    db_session.flush()
+    db_session.add(Product(merchant_id=merchant_a.id, name="Wireless Earbuds Pro", description=None, price=219900, stock=10))
+    db_session.add(Product(merchant_id=merchant_b.id, name="Wireless Earbuds Pro", description=None, price=279900, stock=10))
+    db_session.commit()
+
+    result = search_catalog("earbuds")
+
+    merchant_names = {p["merchant_name"] for p in result["products"]}
+    assert merchant_names == {"Merchant A", "Merchant B"}
 
 
 def test_suggest_upsell_excludes_selected_product(db_session):

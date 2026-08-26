@@ -67,7 +67,14 @@ def _search_catalog(db: Session, ctx: MandateContext, args: dict, user_message: 
     products = SqlAlchemyCatalogRepository(db).search(args["query"])
     output = {
         "products": [
-            {"id": str(p.id), "name": p.name, "price": p.price, "description": p.description}
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "price": p.price,
+                "description": p.description,
+                "merchant_id": str(p.merchant_id),
+                "merchant_name": p.merchant_name,
+            }
             for p in products
         ]
     }
@@ -197,7 +204,12 @@ _SEARCH_CATALOG = ToolDef(
         "type": "function",
         "function": {
             "name": "search_catalog",
-            "description": "Search the merchant catalog for products matching a query.",
+            "description": (
+                "Search across ALL merchants' catalogs for products matching a query. Results may "
+                "include the same or a similar product from multiple merchants at different prices "
+                "— when they do, point that out and recommend the cheapest one unless the customer "
+                "has stated another preference."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},

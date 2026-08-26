@@ -1,0 +1,55 @@
+{
+    "merchant": {
+        "name": "GadgetGalaxy"
+    },
+    "products": [
+        {
+            "name": "Wireless Earbuds Pro",
+            "description": "ANC true wireless earbuds, 28hr case battery.",
+            "price": 219900,
+            "stock": 60
+        },
+        {
+            "name": "USB-C Cable 1m",
+            "description": "Braided USB-C to USB-C cable, 65W PD support.",
+            "price": 24900,
+            "stock": 200
+        },
+        {
+            "name": "Power Bank 10000mAh",
+            "description": "Compact power bank, 20W fast charging output.",
+            "price": 139900,
+            "stock": 80
+        },
+        {
+            "name": "Wireless Earbuds Lite",
+            "description": "Budget true wireless earbuds, 20hr case battery, no ANC.",
+            "price": 129900,
+            "stock": 150
+        },
+        {
+            "name": "20W Fast Charger (USB-C)",
+            "description": "Compact PD wall charger, single port.",
+            "price": 79900,
+            "stock": 120
+        },
+        {
+            "name": "Phone Case (Clear, Slim)",
+            "description": "Slim transparent case, shock-absorbing corners.",
+            "price": 39900,
+            "stock": 250
+        },
+        {
+            "name": "Smartwatch Fitness Band",
+            "description": "24/7 heart rate, sleep tracking, 10-day battery.",
+            "price": 189900,
+            "stock": 40
+        },
+        {
+            "name": "Tempered Glass Screen Protector",
+            "description": "9H hardness, anti-fingerprint coating.",
+            "price": 19900,
+            "stock": 300
+        }
+    ]
+}

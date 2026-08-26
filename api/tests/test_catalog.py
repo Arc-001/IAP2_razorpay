@@ -71,3 +71,30 @@ def test_search_no_match_returns_empty(client, db_session):
     response = client.get("/api/catalog/search", params={"q": "nonexistent"})
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_search_includes_merchant_name(client, db_session):
+    _make_merchant_with_products(db_session, [{"name": "USB-C Cable", "description": None, "price": 29900, "stock": 10}])
+
+    response = client.get("/api/catalog/search", params={"q": "cable"})
+
+    assert response.json()[0]["merchant_name"] == "Test Merchant"
+
+
+def test_search_spans_multiple_merchants(client, db_session):
+    """P3.3: search has never been merchant-scoped — with more than one
+    merchant seeded, the same product query should surface all of them."""
+    merchant_a = Merchant(name="Merchant A")
+    merchant_b = Merchant(name="Merchant B")
+    db_session.add_all([merchant_a, merchant_b])
+    db_session.flush()
+    db_session.add(Product(merchant_id=merchant_a.id, name="Wireless Earbuds Pro", description=None, price=219900, stock=10))
+    db_session.add(Product(merchant_id=merchant_b.id, name="Wireless Earbuds Pro", description=None, price=279900, stock=10))
+    db_session.commit()
+
+    response = client.get("/api/catalog/search", params={"q": "earbuds"})
+
+    results = response.json()
+    assert len(results) == 2
+    merchants_and_prices = {(r["merchant_name"], r["price"]) for r in results}
+    assert merchants_and_prices == {("Merchant A", 219900), ("Merchant B", 279900)}

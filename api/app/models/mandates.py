@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import CheckConstraint, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
@@ -38,6 +38,15 @@ class Product(Base):
     currency: Mapped[str] = mapped_column(Text, server_default="INR")
     stock: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
+
+    merchant: Mapped["Merchant"] = relationship()
+    """Read-only convenience for cross-merchant comparison (CLAUDE.md §11
+    P3.3) — search() has always spanned every merchant, but callers had no
+    way to say *which* one a result came from until now."""
+
+    @property
+    def merchant_name(self) -> str:
+        return self.merchant.name
 
 
 class PriceHistory(Base):

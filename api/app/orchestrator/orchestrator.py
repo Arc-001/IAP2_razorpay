@@ -18,7 +18,10 @@ SYSTEM_PROMPT = (
     "it — and offer the customer a choice between retrying or cancelling. "
     "Once the customer's main items are settled, consider suggest_upsell before "
     "finalizing the cart — at most one relevant add-on, offered once, with zero "
-    "pressure if declined. Never bring it up again after the cart is proposed."
+    "pressure if declined. Never bring it up again after the cart is proposed. "
+    "search_catalog spans every merchant — when the same or a similar product "
+    "shows up from more than one, tell the customer and recommend the cheapest "
+    "option unless they've said they prefer a specific merchant."
 )
 
 

@@ -1,0 +1,55 @@
+{
+    "merchant": {
+        "name": "MobiKart"
+    },
+    "products": [
+        {
+            "name": "Wireless Earbuds Pro",
+            "description": "ANC true wireless earbuds, 32hr case battery, IPX5.",
+            "price": 279900,
+            "stock": 35
+        },
+        {
+            "name": "USB-C Cable 1m",
+            "description": "Reinforced USB-C to USB-C cable, 60W PD support.",
+            "price": 32900,
+            "stock": 100
+        },
+        {
+            "name": "Power Bank 10000mAh",
+            "description": "Slim power bank with digital display, 22.5W output.",
+            "price": 159900,
+            "stock": 55
+        },
+        {
+            "name": "Power Bank 20000mAh",
+            "description": "High-capacity power bank, dual USB-A + USB-C PD.",
+            "price": 219900,
+            "stock": 45
+        },
+        {
+            "name": "Phone Case (Rugged, Shockproof)",
+            "description": "Military-grade drop protection case.",
+            "price": 74900,
+            "stock": 140
+        },
+        {
+            "name": "Bluetooth Speaker Mini",
+            "description": "Portable IPX7 waterproof speaker, 15hr battery.",
+            "price": 169900,
+            "stock": 70
+        },
+        {
+            "name": "65W GaN Multi-Port Charger",
+            "description": "GaN charger with 2x USB-C + 1x USB-A, laptop-capable.",
+            "price": 239900,
+            "stock": 50
+        },
+        {
+            "name": "Privacy Screen Protector",
+            "description": "Anti-spy tempered glass, side-view blocking.",
+            "price": 29900,
+            "stock": 130
+        }
+    ]
+}

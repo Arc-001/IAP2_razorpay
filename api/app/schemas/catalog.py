@@ -8,6 +8,7 @@ class ProductOut(BaseModel):
 
     id: uuid.UUID
     merchant_id: uuid.UUID
+    merchant_name: str
     name: str
     description: str | None
     price: int  # paise
