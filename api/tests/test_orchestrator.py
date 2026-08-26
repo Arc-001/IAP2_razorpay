@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -160,7 +161,7 @@ def test_illegal_tool_call_is_rejected_not_executed(monkeypatch, db_session):
     assert result.state == AgentState.DRAFTING_INTENT
 
 
-def test_building_cart_exposes_search_and_propose_cart(monkeypatch, db_session):
+def test_building_cart_exposes_search_upsell_and_propose_cart(monkeypatch, db_session):
     customer = _customer(db_session, saved_address={"line1": "x"})
     intent = _confirmed_intent(db_session, customer)
     db_session.commit()
@@ -169,7 +170,7 @@ def test_building_cart_exposes_search_and_propose_cart(monkeypatch, db_session):
     run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "show me options")
 
     tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
-    assert tool_names == {"search_catalog", "propose_cart"}
+    assert tool_names == {"search_catalog", "suggest_upsell", "accept_upsell", "decline_upsell", "propose_cart"}
 
 
 def test_search_catalog_tool_returns_matching_products(monkeypatch, db_session):
@@ -218,6 +219,118 @@ def test_propose_cart_advances_to_awaiting_cart_ok(monkeypatch, db_session):
 
     assert result.state == AgentState.AWAITING_CART_OK
     assert result.context.cart_id is not None
+
+
+def test_suggest_upsell_returns_other_merchant_products(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    main_item = Product(merchant_id=merchant.id, name="Power Bank", description=None, price=100000, stock=5)
+    addon = Product(merchant_id=merchant.id, name="USB-C Cable", description="1m braided cable", price=29900, stock=10)
+    db_session.add_all([main_item, addon])
+    db_session.flush()
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "suggest_upsell", {"selected_product_ids": [str(main_item.id)]})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Want a cable with that?"))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "just the power bank"
+    )
+
+    candidates = result.tool_calls[0]["output"]["candidates"]
+    assert [c["name"] for c in candidates] == ["USB-C Cable"]
+    assert result.state == AgentState.BUILDING_CART  # suggesting doesn't advance state
+
+
+def test_accept_upsell_returns_product_details_for_next_propose_cart(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    addon = Product(merchant_id=merchant.id, name="USB-C Cable", description=None, price=29900, stock=10)
+    db_session.add(addon)
+    db_session.flush()
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "accept_upsell", {"product_id": str(addon.id), "quantity": 1})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Added the cable."))],
+    )
+
+    result = run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "sure, add it")
+
+    output = result.tool_calls[0]["output"]
+    assert output["accepted"] is True
+    assert output["product_id"] == str(addon.id)
+    assert result.context.cart_id is None  # accepting doesn't itself create a cart
+
+
+def test_accept_upsell_unknown_product_surfaces_as_error(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "accept_upsell", {"product_id": str(uuid.uuid4())})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Hmm, let me check."))],
+    )
+
+    result = run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "add it")
+
+    assert "not found" in result.tool_calls[0]["output"]["error"]
+
+
+def test_decline_upsell_acknowledges_without_side_effects(monkeypatch, db_session):
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "decline_upsell", {})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="No problem."))],
+    )
+
+    result = run_turn(db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "no thanks")
+
+    assert result.tool_calls[0]["output"] == {"accepted": False}
+    assert result.state == AgentState.BUILDING_CART
+
+
+def test_awaiting_cart_ok_does_not_expose_upsell_tools(monkeypatch, db_session):
+    """Structural guarantee (CLAUDE.md §7 guard, SCRUM-27): once a cart
+    exists, an upsell can never be added — the tools simply aren't there."""
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="draft",
+    )
+    db_session.add(cart)
+    db_session.commit()
+
+    fake = _patch_client(monkeypatch, [_response(_message(content="ok"))])
+    run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id), "confirm it"
+    )
+
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"confirm_cart"}
+    assert "suggest_upsell" not in tool_names
+    assert "accept_upsell" not in tool_names
+    assert "decline_upsell" not in tool_names
 
 
 def test_confirm_cart_budget_guard_surfaces_as_tool_error_not_crash(monkeypatch, db_session):
