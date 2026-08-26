@@ -7,6 +7,7 @@ from app.models import Customer, IntentMandate
 from app.schemas.intent import IntentExtraction
 from app.services.audit import record_transition
 from app.services.intent_extraction import extract_intent
+from app.services.mandate_expiry import is_expired
 from app.services.mandate_signing import hash_payload, sign_mandate
 
 
@@ -74,6 +75,13 @@ def confirm_intent(db: Session, mandate_id: uuid.UUID) -> IntentMandate:
         raise ValueError(f"intent mandate {mandate_id} not found")
     if mandate.status != "draft":
         raise ValueError(f"cannot confirm intent mandate in status '{mandate.status}'")
+
+    if is_expired(mandate.created_at):
+        payload_hash = hash_payload(mandate.structured_json)
+        mandate.status = "expired"
+        record_transition(db, "intent", mandate.id, "draft", "expired", "system", payload_hash)
+        db.commit()
+        raise ValueError("intent mandate has expired — please describe your request again")
 
     payload_hash = hash_payload(mandate.structured_json)
     mandate.signature = sign_mandate("intent", mandate.id, payload_hash)

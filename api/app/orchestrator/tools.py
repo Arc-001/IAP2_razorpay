@@ -64,6 +64,7 @@ def _propose_cart(db: Session, ctx: MandateContext, args: dict, user_message: st
         intent_mandate_id=ctx.intent_id,
         items=[CartItemRequest(**item) for item in args["items"]],
         shipping_address=args.get("shipping_address"),
+        acknowledge_price_change=args.get("acknowledge_price_change", False),
     )
     cart = create_draft_cart(db, request)
     return ToolResult(
@@ -166,6 +167,15 @@ _PROPOSE_CART = ToolDef(
                     "shipping_address": {
                         "type": "object",
                         "description": "Omit if the customer already has a saved address on file.",
+                    },
+                    "acknowledge_price_change": {
+                        "type": "boolean",
+                        "description": (
+                            "Only set true after you've told the customer a product's price has "
+                            "risen since it was last known and they've explicitly agreed to the "
+                            "new price. The first attempt will fail with the old/new prices if "
+                            "this is needed — relay that to the customer before retrying."
+                        ),
                     },
                 },
                 "required": ["items"],

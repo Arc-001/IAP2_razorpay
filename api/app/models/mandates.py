@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import CheckConstraint, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
@@ -9,12 +9,22 @@ from sqlalchemy.sql import func
 from app.db import Base
 
 
+# Python-side default, not server_default=func.now(): Postgres freezes
+# now() to transaction start, so multiple rows inserted in one transaction
+# (routine here — several commits per request, and test isolation runs a
+# whole test in one transaction) get identical timestamps, making any
+# ORDER BY created_at/changed_at comparison between them undefined. A
+# client-side default calls the real wall clock per row instead.
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 class Merchant(Base):
     __tablename__ = "merchants"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
 
 class Product(Base):
@@ -27,7 +37,7 @@ class Product(Base):
     price: Mapped[int] = mapped_column(nullable=False)  # smallest currency subunit (paise)
     currency: Mapped[str] = mapped_column(Text, server_default="INR")
     stock: Mapped[int | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
 
 class PriceHistory(Base):
@@ -38,7 +48,7 @@ class PriceHistory(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"))
     price: Mapped[int] = mapped_column(nullable=False)
-    changed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    changed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
 
 class Customer(Base):
@@ -60,7 +70,7 @@ class IntentMandate(Base):
     structured_json: Mapped[dict | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(Text, server_default="draft")
     signature: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
     confirmed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
@@ -75,7 +85,7 @@ class CartMandate(Base):
     shipping_address: Mapped[dict | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(Text, server_default="draft")
     signature: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
     confirmed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
@@ -90,7 +100,7 @@ class PaymentMandate(Base):
     status: Mapped[str] = mapped_column(Text, server_default="pending")
     razorpay_payment_id: Mapped[str | None] = mapped_column(Text)
     signature_verified: Mapped[bool] = mapped_column(server_default="false")
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
@@ -106,4 +116,4 @@ class AuditLog(Base):
     to_state: Mapped[str | None] = mapped_column(Text)
     actor: Mapped[str | None] = mapped_column(Text)
     payload_hash: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)

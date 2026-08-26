@@ -21,5 +21,9 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "google/gemini-3.7-flash"
 
+    # Bounded-mandate rules (CLAUDE.md §11 P2.3)
+    intent_expiry_minutes: int = 15
+    price_rise_threshold: float = 0.10
+
 
 settings = Settings()

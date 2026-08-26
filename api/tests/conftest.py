@@ -38,10 +38,18 @@ def engine():
 @pytest.fixture()
 def db_session(engine):
     """Each test runs inside a transaction that's rolled back afterward —
-    tests never leave state behind or touch the dev database."""
+    tests never leave state behind or touch the dev database.
+
+    join_transaction_mode="create_savepoint" is required here: service code
+    calls db.commit() internally, and a Session bound directly to a
+    Connection that already has a transaction open will otherwise commit
+    that *outer* transaction for real on the first db.commit() — silently
+    breaking isolation (every test's data leaks into later tests within the
+    same pytest run) while every test still individually appears to pass.
+    """
     connection = engine.connect()
     trans = connection.begin()
-    session = sessionmaker(bind=connection)()
+    session = sessionmaker(bind=connection, join_transaction_mode="create_savepoint")()
 
     yield session
 

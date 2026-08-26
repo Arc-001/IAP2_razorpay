@@ -3,11 +3,13 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import CartMandate, Customer, IntentMandate
 from app.repositories.catalog import SqlAlchemyCatalogRepository
 from app.schemas.cart import CartDraftRequest
 from app.services.audit import record_transition
 from app.services.mandate_signing import hash_payload, sign_mandate
+from app.services.price_history import price_has_risen_significantly
 
 # Flat shipping fee — the spec doesn't define a shipping-cost model, and a
 # real rate table is out of scope for the demo catalog.
@@ -46,6 +48,15 @@ def create_draft_cart(db: Session, request: CartDraftRequest) -> CartMandate:
         product = repo.get_product(item.product_id)
         if product is None:
             raise LookupError(f"product {item.product_id} not found")
+
+        risen, previous_price, current_price = price_has_risen_significantly(db, product.id)
+        if risen and not request.acknowledge_price_change:
+            raise ValueError(
+                f"price for '{product.name}' has risen from {previous_price} to {current_price} paise "
+                f"(>{int(settings.price_rise_threshold * 100)}%) since it was last known — resend with "
+                f"acknowledge_price_change=true to proceed at the new price"
+            )
+
         line_total = product.price * item.quantity
         subtotal += line_total
         line_items.append(

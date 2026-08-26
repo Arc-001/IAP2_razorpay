@@ -13,6 +13,7 @@ class CartDraftRequest(BaseModel):
     intent_mandate_id: uuid.UUID
     items: list[CartItemRequest]
     shipping_address: dict | None = None
+    acknowledge_price_change: bool = False
 
 
 class CartMandateOut(BaseModel):

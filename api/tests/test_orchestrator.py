@@ -3,11 +3,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.adapters.payment_provider import ChargeResult
-from app.models import CartMandate, Customer, IntentMandate, Merchant, Product
+from app.models import CartMandate, Customer, IntentMandate, Merchant, PriceHistory, Product
 from app.orchestrator import orchestrator as orchestrator_module
 from app.orchestrator.context import MandateContext
 from app.orchestrator.orchestrator import run_turn
 from app.orchestrator.state import AgentState
+from app.services.price_history import record_price_change
 
 
 def _tool_call(call_id, name, arguments):
@@ -391,3 +392,33 @@ def test_fallback_reply_used_when_model_returns_empty_summary(monkeypatch, db_se
     )
 
     assert result.reply == "confirm_intent completed."
+
+
+def test_propose_cart_price_rise_guard_surfaces_as_tool_error(monkeypatch, db_session):
+    merchant = Merchant(name="M")
+    db_session.add(merchant)
+    db_session.flush()
+    product = Product(merchant_id=merchant.id, name="Power Bank", description=None, price=10000, stock=5)
+    db_session.add(product)
+    db_session.flush()
+    db_session.add(PriceHistory(product_id=product.id, price=10000))
+    db_session.commit()
+    record_price_change(db_session, product.id, 15000)  # +50%
+
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    db_session.commit()
+
+    call = _tool_call("call_1", "propose_cart", {"items": [{"product_id": str(product.id), "quantity": 1}]})
+    _patch_client(
+        monkeypatch,
+        [_response(_message(tool_calls=[call])), _response(_message(content="Price changed, heads up."))],
+    )
+
+    result = run_turn(
+        db_session, MandateContext(customer_id=customer.id, intent_id=intent.id), "add the power bank"
+    )
+
+    assert "risen" in result.tool_calls[0]["output"]["error"]
+    assert result.state == AgentState.BUILDING_CART  # not advanced
+    assert result.context.cart_id is None

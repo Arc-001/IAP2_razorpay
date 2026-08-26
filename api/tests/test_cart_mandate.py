@@ -1,9 +1,10 @@
 import uuid
 from datetime import UTC, datetime
 
-from app.models import Customer, IntentMandate, Merchant, Product
+from app.models import Customer, IntentMandate, Merchant, PriceHistory, Product
 from app.services.cart_mandate import SHIPPING_FEE_PAISE
 from app.services.mandate_signing import verify_mandate
+from app.services.price_history import record_price_change
 
 
 def _make_customer(db_session, saved_address=None) -> Customer:
@@ -212,3 +213,57 @@ def test_confirm_cart_nonexistent_returns_404(client):
 def test_get_cart_nonexistent_returns_404(client):
     response = client.get(f"/api/cart/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+def test_draft_cart_rejects_significant_price_rise(client, db_session):
+    customer = _make_customer(db_session, saved_address={"line1": "x"})
+    intent = _make_intent(db_session, customer)
+    product = _make_product(db_session, price=10000)
+    db_session.add(PriceHistory(product_id=product.id, price=10000))
+    db_session.commit()
+    record_price_change(db_session, product.id, 15000)  # +50%
+
+    response = client.post(
+        "/api/cart",
+        json={"intent_mandate_id": str(intent.id), "items": [{"product_id": str(product.id), "quantity": 1}]},
+    )
+
+    assert response.status_code == 400
+    assert "risen" in response.json()["detail"]
+
+
+def test_draft_cart_succeeds_with_acknowledge_price_change(client, db_session):
+    customer = _make_customer(db_session, saved_address={"line1": "x"})
+    intent = _make_intent(db_session, customer)
+    product = _make_product(db_session, price=10000)
+    db_session.add(PriceHistory(product_id=product.id, price=10000))
+    db_session.commit()
+    record_price_change(db_session, product.id, 15000)
+
+    response = client.post(
+        "/api/cart",
+        json={
+            "intent_mandate_id": str(intent.id),
+            "items": [{"product_id": str(product.id), "quantity": 1}],
+            "acknowledge_price_change": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["unit_price"] == 15000
+
+
+def test_draft_cart_unaffected_by_price_rise_within_threshold(client, db_session):
+    customer = _make_customer(db_session, saved_address={"line1": "x"})
+    intent = _make_intent(db_session, customer)
+    product = _make_product(db_session, price=10000)
+    db_session.add(PriceHistory(product_id=product.id, price=10000))
+    db_session.commit()
+    record_price_change(db_session, product.id, 10500)  # +5%, under threshold
+
+    response = client.post(
+        "/api/cart",
+        json={"intent_mandate_id": str(intent.id), "items": [{"product_id": str(product.id), "quantity": 1}]},
+    )
+
+    assert response.status_code == 200

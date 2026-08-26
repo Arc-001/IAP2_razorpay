@@ -32,7 +32,16 @@ def test_sign_and_verify_roundtrip():
 
 def test_verify_rejects_tampered_signature():
     signature = sign_mandate("intent", uuid.uuid4(), hash_payload({"a": 1}))
-    tampered = signature[:-1] + ("A" if signature[-1] != "A" else "B")
+    header_and_payload, sig = signature.rsplit(".", 1)
 
-    with pytest.raises(jwt.exceptions.InvalidSignatureError):
+    # Flip a character in the middle of the signature, not the last one: a
+    # 32-byte HMAC-SHA256 signature doesn't divide evenly into base64's
+    # 6-bit groups, so the final character carries unused padding bits —
+    # changing only it can occasionally decode to the *same* underlying
+    # bytes, which isn't actually tampering.
+    mid = len(sig) // 2
+    flipped = "A" if sig[mid] != "A" else "B"
+    tampered = f"{header_and_payload}.{sig[:mid]}{flipped}{sig[mid + 1:]}"
+
+    with pytest.raises(jwt.exceptions.PyJWTError):
         verify_mandate(tampered)
