@@ -22,6 +22,13 @@ const props = defineProps<{
 
 const output = computed(() => props.toolCall.output)
 const isError = computed(() => typeof output.value.error === 'string')
+// Defense-in-depth errors ("'X' is not available in the current state") are an
+// internal safety net, not a business rejection the model should have hit in
+// normal operation — don't alarm the customer with a red box for these the way
+// a real rejection (budget cap, price rise) deserves.
+const isStructuralError = computed(
+  () => isError.value && (output.value.error as string).includes('is not available in the current state'),
+)
 
 const intentStructured = computed(() => (output.value as unknown as ProposeIntentOutput).structured)
 const signature = computed(() => (output.value.signature as string | null) ?? null)
@@ -35,10 +42,15 @@ const clientPayload = computed(() => output.value.client_payload as ClientPayloa
 const paymentId = computed(() => output.value.id as string)
 const paymentStatus = computed(() => output.value.status as string)
 const razorpayPaymentId = computed(() => (output.value.razorpay_payment_id as string | null) ?? null)
+const acceptedUpsellName = computed(() => output.value.name as string)
+const acceptedUpsellPrice = computed(() => output.value.price as number)
+const acceptedUpsellQuantity = computed(() => output.value.quantity as number)
 </script>
 
 <template>
-  <div v-if="isError" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+  <div v-if="isStructuralError" class="px-1 text-xs text-slate-400">One moment…</div>
+
+  <div v-else-if="isError" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
     {{ output.error }}
   </div>
 
@@ -68,6 +80,18 @@ const razorpayPaymentId = computed(() => (output.value.razorpay_payment_id as st
     v-else-if="toolCall.tool === 'suggest_upsell' && upsellCandidates.length > 0"
     :candidates="upsellCandidates"
   />
+  <template v-else-if="toolCall.tool === 'suggest_upsell'" />
+
+  <div
+    v-else-if="toolCall.tool === 'accept_upsell'"
+    class="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-sm text-emerald-800"
+  >
+    Added {{ acceptedUpsellQuantity }}× {{ acceptedUpsellName }} ({{ formatPaise(acceptedUpsellPrice) }})
+  </div>
+
+  <div v-else-if="toolCall.tool === 'decline_upsell'" class="px-1 text-xs text-slate-400">
+    Skipped the suggested add-on.
+  </div>
 
   <CartSummaryCard
     v-else-if="toolCall.tool === 'propose_cart'"
