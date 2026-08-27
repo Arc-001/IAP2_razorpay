@@ -29,6 +29,7 @@ function logout() {
         <span class="text-xs text-slate-400">{{ auth.user?.email }}</span>
         <RouterLink to="/history" class="text-xs text-slate-400 underline hover:no-underline">History</RouterLink>
         <RouterLink to="/profile" class="text-xs text-slate-400 underline hover:no-underline">Profile</RouterLink>
+        <RouterLink to="/orders" class="text-xs text-slate-400 underline hover:no-underline">Orders</RouterLink>
         <button class="text-xs text-slate-400 underline hover:no-underline" @click="startOver">Start Over</button>
         <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
       </div>

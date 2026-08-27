@@ -5,6 +5,7 @@ import type {
   ChatResponse,
   ConversationDetail,
   ConversationSummary,
+  OrderSummary,
   PaymentMandateOut,
   Profile,
   TokenResponse,
@@ -117,4 +118,8 @@ export function updateAddress(addressId: string, fields: Partial<AddressInput>):
 
 export function deleteAddress(addressId: string): Promise<void> {
   return del(`/api/me/addresses/${addressId}`)
+}
+
+export function getMyOrders(): Promise<OrderSummary[]> {
+  return get('/api/me/orders')
 }

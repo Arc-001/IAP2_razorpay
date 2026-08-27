@@ -34,10 +34,17 @@ def record_transition(
     )
 
 
-def list_recent_transactions(db: Session, limit: int = 50) -> list[IntentMandate]:
+def list_recent_transactions(
+    db: Session, customer_id: uuid.UUID | None = None, limit: int = 50
+) -> list[IntentMandate]:
     """Each intent mandate is the root of one transaction (CLAUDE.md §5,
-    §8) — carts and payments always trace back to exactly one."""
-    return db.query(IntentMandate).order_by(IntentMandate.created_at.desc()).limit(limit).all()
+    §8) — carts and payments always trace back to exactly one. customer_id
+    is optional: the admin view (SCRUM-45) lists across everyone, while a
+    customer's own order history (SCRUM-43) needs it scoped to just them."""
+    query = db.query(IntentMandate)
+    if customer_id is not None:
+        query = query.filter(IntentMandate.customer_id == customer_id)
+    return query.order_by(IntentMandate.created_at.desc()).limit(limit).all()
 
 
 @dataclass(frozen=True)

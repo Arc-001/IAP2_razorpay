@@ -12,6 +12,7 @@ from app.schemas.customer import (
     AddressUpdate,
     ConversationDetailOut,
     ConversationSummaryOut,
+    OrderSummaryOut,
     ProfileOut,
     ProfileUpdate,
 )
@@ -22,6 +23,7 @@ from app.services.customer_addresses import (
     list_addresses,
     update_address,
 )
+from app.services.orders import list_customer_orders
 
 router = APIRouter(prefix="/api/me", tags=["customer"])
 
@@ -99,3 +101,23 @@ def remove_my_address(
         delete_address(db, current_user.customer_id, address_id)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/orders", response_model=list[OrderSummaryOut])
+def get_my_orders(db: Session = Depends(get_db), current_user: User = Depends(require_role("customer"))):
+    summaries = list_customer_orders(db, current_user.customer_id)
+    return [
+        OrderSummaryOut(
+            intent_id=s.intent.id,
+            created_at=s.intent.created_at,
+            intent_status=s.intent.status,
+            product_query=(s.intent.structured_json or {}).get("product_query"),
+            cart_id=s.cart.id if s.cart else None,
+            cart_status=s.cart.status if s.cart else None,
+            total_amount=s.cart.total_amount if s.cart else None,
+            payment_id=s.payment.id if s.payment else None,
+            payment_status=s.payment.status if s.payment else None,
+            razorpay_payment_id=s.payment.razorpay_payment_id if s.payment else None,
+        )
+        for s in summaries
+    ]

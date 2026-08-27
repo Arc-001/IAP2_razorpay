@@ -43,6 +43,12 @@ const router = createRouter({
       component: () => import('@/views/ProfileView.vue'),
       meta: { requiresAuth: true, role: 'customer' },
     },
+    {
+      path: '/orders',
+      name: 'orders',
+      component: () => import('@/views/OrdersView.vue'),
+      meta: { requiresAuth: true, role: 'customer' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

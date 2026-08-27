@@ -70,3 +70,16 @@ class AddressOut(BaseModel):
     country: str
     is_default: bool
     created_at: datetime
+
+
+class OrderSummaryOut(BaseModel):
+    intent_id: uuid.UUID
+    created_at: datetime
+    intent_status: str
+    product_query: str | None
+    cart_id: uuid.UUID | None
+    cart_status: str | None
+    total_amount: int | None
+    payment_id: uuid.UUID | None
+    payment_status: str | None
+    razorpay_payment_id: str | None

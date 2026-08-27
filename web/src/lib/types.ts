@@ -260,3 +260,18 @@ export interface AddressInput {
   country?: string
   is_default?: boolean
 }
+
+// --- Order history (mirrors api/app/schemas/customer.py OrderSummaryOut) ---
+
+export interface OrderSummary {
+  intent_id: string
+  created_at: string
+  intent_status: string
+  product_query: string | null
+  cart_id: string | null
+  cart_status: string | null
+  total_amount: number | null
+  payment_id: string | null
+  payment_status: string | null
+  razorpay_payment_id: string | null
+}
