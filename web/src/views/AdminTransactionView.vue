@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { getAuditTrail, ApiError } from '@/lib/api'
+import AppHeader from '@/components/AppHeader.vue'
 import type { TransactionAuditOut } from '@/lib/types'
 
 const route = useRoute()
@@ -26,14 +27,13 @@ onMounted(async () => {
 
 <template>
   <div class="min-h-screen bg-slate-100">
-    <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-      <h1 class="text-sm font-semibold text-slate-800">Transaction detail</h1>
-      <RouterLink to="/admin" class="text-xs text-slate-400 underline hover:no-underline">
-        &larr; all transactions
-      </RouterLink>
-    </header>
+    <AppHeader title="Admin — Transaction detail" />
 
     <div class="mx-auto max-w-2xl px-4 py-8">
+      <RouterLink to="/admin" class="mb-4 inline-block text-sm text-indigo-600 hover:underline">
+        &larr; all transactions
+      </RouterLink>
+
       <div v-if="isLoading" class="text-sm text-slate-400">Loading…</div>
       <div v-else-if="error" class="text-sm text-red-600">{{ error }}</div>
 

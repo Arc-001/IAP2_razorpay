@@ -26,6 +26,10 @@ function dotClass(status: string) {
   }
 }
 
+function lineClass(status: string) {
+  return status === 'done' ? 'bg-emerald-400' : 'bg-slate-200'
+}
+
 function labelClass(status: string) {
   switch (status) {
     case 'done':
@@ -42,11 +46,18 @@ function labelClass(status: string) {
 
 <template>
   <div class="rounded-lg border border-slate-200 bg-white p-4">
-    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Mandate Chain</div>
-    <ol class="space-y-3">
-      <li v-for="stage in stages" :key="stage.index" class="flex items-center gap-2">
-        <span class="h-3 w-3 shrink-0 rounded-full border-2" :class="dotClass(stage.status)"></span>
-        <span class="text-sm font-medium" :class="labelClass(stage.status)">{{ stage.label }}</span>
+    <div class="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Mandate Chain</div>
+    <ol>
+      <li v-for="(stage, i) in stages" :key="stage.index" class="relative" :class="i < stages.length - 1 ? 'pb-4' : ''">
+        <span
+          v-if="i < stages.length - 1"
+          class="absolute left-1.25 top-3 bottom-0 w-px"
+          :class="lineClass(stage.status)"
+        />
+        <div class="relative flex items-center gap-2.5">
+          <span class="h-3 w-3 shrink-0 rounded-full border-2" :class="dotClass(stage.status)"></span>
+          <span class="text-sm font-medium" :class="labelClass(stage.status)">{{ stage.label }}</span>
+        </div>
       </li>
     </ol>
 

@@ -33,7 +33,7 @@ function select(product: CatalogProduct) {
         <div class="mt-1 text-xs text-slate-500">{{ product.merchant_name }}</div>
         <div v-if="product.description" class="mt-1 text-xs text-slate-500">{{ product.description }}</div>
         <button
-          class="mt-2 self-start rounded bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-700"
+          class="mt-2 self-start rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
           :disabled="conversation.isSending"
           @click="select(product)"
         >

@@ -18,7 +18,7 @@ const html = computed(() => (props.entry.text ? renderMarkdown(props.entry.text)
         v-if="entry.text"
         class="markdown-body rounded-2xl px-4 py-2 text-sm"
         :class="[
-          entry.role === 'user' ? 'bg-slate-900 text-white' : 'bg-white text-slate-800 border border-slate-200',
+          entry.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-800 border border-slate-200',
           entry.stalled ? 'border-l-4 border-l-amber-400' : '',
         ]"
         v-html="html"

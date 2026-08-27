@@ -7,11 +7,8 @@ import {
   ApiError,
 } from '@/lib/api'
 import { formatPaise } from '@/lib/types'
-import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
+import AppHeader from '@/components/AppHeader.vue'
 import type { MerchantProduct } from '@/lib/types'
-
-const auth = useAuthStore()
 
 const products = ref<MerchantProduct[]>([])
 const isLoading = ref(true)
@@ -79,24 +76,11 @@ async function removeProduct(product: MerchantProduct) {
     handleError(err, 'Could not delete that product.')
   }
 }
-
-function logout() {
-  auth.logout()
-  router.push('/login')
-}
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-100">
-    <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-      <h1 class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-        <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">
-          {{ auth.user?.role }}
-        </span>
-        {{ auth.user?.email }} — Merchant catalog
-      </h1>
-      <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
-    </header>
+    <AppHeader title="Merchant catalog" />
 
     <div class="mx-auto max-w-2xl px-4 py-8">
       <div v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</div>
@@ -140,7 +124,7 @@ function logout() {
         </p>
         <button
           :disabled="isCreating"
-          class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           @click="addProduct"
         >
           {{ isCreating ? 'Adding…' : 'Add product' }}

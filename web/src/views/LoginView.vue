@@ -20,8 +20,18 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-slate-100 px-4">
-    <form class="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6" @submit.prevent="submit">
+  <div class="flex min-h-screen flex-col items-center justify-center bg-slate-100 px-4">
+    <div class="mb-6 flex items-center gap-2">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-base font-bold text-white">
+        A
+      </span>
+      <span class="text-sm font-semibold text-slate-700">AP2 Agentic Commerce</span>
+    </div>
+
+    <form
+      class="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+      @submit.prevent="submit"
+    >
       <h1 class="text-lg font-semibold text-slate-800">Log in</h1>
 
       <div class="space-y-1">
@@ -50,7 +60,7 @@ async function submit() {
       <button
         type="submit"
         :disabled="auth.isSubmitting"
-        class="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+        class="w-full rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
         {{ auth.isSubmitting ? 'Logging in…' : 'Log in' }}
       </button>

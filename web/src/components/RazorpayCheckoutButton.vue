@@ -47,7 +47,7 @@ async function pay() {
     </div>
     <template v-else>
       <button
-        class="w-full rounded bg-slate-900 px-3 py-2 font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        class="w-full rounded bg-indigo-600 px-3 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         :disabled="opening"
         @click="pay"
       >

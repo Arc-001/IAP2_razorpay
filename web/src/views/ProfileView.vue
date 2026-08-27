@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
 import {
   getMyProfile,
   updateMyProfile,
@@ -10,6 +9,8 @@ import {
   deleteAddress,
   ApiError,
 } from '@/lib/api'
+import { CUSTOMER_NAV_LINKS } from '@/lib/customerNav'
+import AppHeader from '@/components/AppHeader.vue'
 import type { Address, Profile } from '@/lib/types'
 
 const profile = ref<Profile | null>(null)
@@ -98,16 +99,16 @@ async function removeAddress(address: Address) {
 </script>
 
 <template>
-  <div class="mx-auto min-h-screen max-w-2xl bg-slate-100 px-4 py-8">
-    <div class="mb-4 flex items-center justify-between">
-      <h1 class="text-lg font-semibold text-slate-800">Your profile</h1>
-      <RouterLink to="/" class="text-sm text-slate-500 underline hover:no-underline">Back to chat</RouterLink>
-    </div>
+  <div class="min-h-screen bg-slate-100">
+    <AppHeader title="AP2 Agentic Commerce" :links="CUSTOMER_NAV_LINKS" />
 
-    <div v-if="isLoading" class="text-sm text-slate-400">Loading…</div>
+    <div class="mx-auto max-w-2xl px-4 py-8">
+      <h2 class="mb-4 text-lg font-semibold text-slate-800">Your profile</h2>
 
-    <template v-else>
-      <div v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</div>
+      <div v-if="isLoading" class="text-sm text-slate-400">Loading…</div>
+
+      <template v-else>
+        <div v-if="error" class="mb-4 text-sm text-red-600">{{ error }}</div>
 
       <section class="mb-6 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
         <h2 class="text-sm font-medium text-slate-700">Details</h2>
@@ -121,7 +122,7 @@ async function removeAddress(address: Address) {
         </div>
         <div class="flex items-center gap-3">
           <button
-            class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white"
             @click="saveProfile"
           >
             Save
@@ -157,7 +158,9 @@ async function removeAddress(address: Address) {
             </div>
           </li>
         </ul>
-        <p v-else class="text-sm text-slate-400">No saved addresses yet.</p>
+        <p v-else class="rounded-lg border border-dashed border-slate-200 py-4 text-center text-sm text-slate-400">
+          No saved addresses yet.
+        </p>
 
         <div class="space-y-2 border-t border-slate-100 pt-3">
           <input
@@ -187,13 +190,14 @@ async function removeAddress(address: Address) {
             />
           </div>
           <button
-            class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white"
             @click="addAddress"
           >
             Add address
           </button>
         </div>
       </section>
-    </template>
+      </template>
+    </div>
   </div>
 </template>
