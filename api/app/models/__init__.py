@@ -1,3 +1,4 @@
+from app.models.auth import User
 from app.models.mandates import (
     AuditLog,
     CartMandate,
@@ -18,4 +19,5 @@ __all__ = [
     "PaymentMandate",
     "PriceHistory",
     "Product",
+    "User",
 ]

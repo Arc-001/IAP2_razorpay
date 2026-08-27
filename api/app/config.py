@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     # HMAC-SHA256 secret for signing Intent/Cart mandates (see CLAUDE.md §1).
     mandate_signing_secret: str = "dev-only-change-me"
 
+    # Separate secret for HTTP bearer-token auth (login sessions) — deliberately
+    # not shared with mandate_signing_secret: a leaked login token shouldn't be
+    # replayable against mandate-verification code, and rotating one shouldn't
+    # force rotating the other.
+    auth_jwt_secret: str = "dev-only-change-me-auth"
+    auth_jwt_algorithm: str = "HS256"
+    auth_jwt_expires_minutes: int = 1440
+
     anthropic_api_key: str = ""
 
     # LLM tool-calling goes through OpenRouter (OpenAI-compatible API), not
