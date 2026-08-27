@@ -79,3 +79,19 @@ def customer_headers(client):
     )
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def admin_headers(db_session):
+    """An admin token — admin accounts are never self-registered (see
+    routers/auth.py), so build the User row directly, same as the seed
+    script does."""
+    from app.models import User
+    from app.services.auth_tokens import create_access_token
+    from app.services.password import hash_password
+
+    admin = User(email="test-admin@example.com", password_hash=hash_password("hunter2"), role="admin")
+    db_session.add(admin)
+    db_session.commit()
+    token = create_access_token(admin.id, admin.role)
+    return {"Authorization": f"Bearer {token}"}

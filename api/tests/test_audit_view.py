@@ -139,10 +139,10 @@ def test_list_recent_transactions_respects_limit(db_session):
     assert len(list_recent_transactions(db_session, limit=2)) == 2
 
 
-def test_api_transaction_json_endpoint(client, db_session):
+def test_api_transaction_json_endpoint(client, db_session, admin_headers):
     intent, cart, failed_payment, retried_payment = _full_transaction(db_session)
 
-    response = client.get(f"/api/audit/transactions/{intent.id}")
+    response = client.get(f"/api/audit/transactions/{intent.id}", headers=admin_headers)
 
     assert response.status_code == 200
     body = response.json()
@@ -153,25 +153,109 @@ def test_api_transaction_json_endpoint(client, db_session):
     assert len(body["entries"]) == 7
 
 
-def test_api_transaction_json_endpoint_404_for_unknown_intent(client):
-    response = client.get(f"/api/audit/transactions/{uuid.uuid4()}")
+def test_api_transaction_json_endpoint_includes_signatures_and_payment_status(client, db_session, admin_headers):
+    intent, *_ = _full_transaction(db_session)
+
+    response = client.get(f"/api/audit/transactions/{intent.id}", headers=admin_headers)
+
+    body = response.json()
+    assert body["intent_signature"] == "s"
+    assert body["cart_signatures"] == ["s"]
+    assert set(body["payment_statuses"]) == {"failed", "executed"}
+    assert body["payment_signature_verified"] == [False, False]
+
+
+def test_api_transaction_json_endpoint_requires_authentication(client, db_session):
+    intent, *_ = _full_transaction(db_session)
+
+    response = client.get(f"/api/audit/transactions/{intent.id}")
+    assert response.status_code == 401
+
+
+def test_api_transaction_json_endpoint_404_for_unknown_intent(client, admin_headers):
+    response = client.get(f"/api/audit/transactions/{uuid.uuid4()}", headers=admin_headers)
     assert response.status_code == 404
 
 
-def test_api_list_transactions_endpoint(client, db_session):
+def test_owning_customer_can_view_their_own_transaction(client, db_session):
+    register = client.post(
+        "/api/auth/register",
+        json={"email": "owner@example.com", "password": "hunter2", "role": "customer", "name": "Owner"},
+    )
+    body = register.json()
+    headers = {"Authorization": f"Bearer {body['access_token']}"}
+    customer_id = body["user"]["customer_id"]
+
+    intent = IntentMandate(customer_id=customer_id, raw_text="mine", structured_json={}, status="draft")
+    db_session.add(intent)
+    db_session.commit()
+    record_transition(db_session, "intent", intent.id, None, "draft", "customer", "h")
+    db_session.commit()
+
+    response = client.get(f"/api/audit/transactions/{intent.id}", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["intent_id"] == str(intent.id)
+
+
+def test_non_owning_customer_cannot_view_someone_elses_transaction(client, db_session):
+    intent, *_ = _full_transaction(db_session)  # belongs to an unrelated raw Customer
+
+    register = client.post(
+        "/api/auth/register",
+        json={"email": "not-owner@example.com", "password": "hunter2", "role": "customer", "name": "Not Owner"},
+    )
+    headers = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+    response = client.get(f"/api/audit/transactions/{intent.id}", headers=headers)
+
+    assert response.status_code == 404
+
+
+def test_merchant_cannot_view_a_transaction(client, db_session):
     intent, *_ = _full_transaction(db_session)
 
-    response = client.get("/api/audit/transactions")
+    register = client.post(
+        "/api/auth/register",
+        json={
+            "email": "shop-audit@example.com",
+            "password": "hunter2",
+            "role": "merchant",
+            "name": "Owner",
+            "merchant_name": "Shop",
+        },
+    )
+    headers = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+    response = client.get(f"/api/audit/transactions/{intent.id}", headers=headers)
+
+    assert response.status_code == 404
+
+
+def test_api_list_transactions_endpoint(client, db_session, admin_headers):
+    intent, *_ = _full_transaction(db_session)
+
+    response = client.get("/api/audit/transactions", headers=admin_headers)
 
     assert response.status_code == 200
     ids = [t["intent_id"] for t in response.json()]
     assert str(intent.id) in ids
 
 
-def test_html_index_lists_transaction_and_links_to_detail(client, db_session):
+def test_api_list_transactions_requires_authentication(client):
+    response = client.get("/api/audit/transactions")
+    assert response.status_code == 401
+
+
+def test_api_list_transactions_rejects_a_customer_token(client, customer_headers):
+    response = client.get("/api/audit/transactions", headers=customer_headers)
+    assert response.status_code == 403
+
+
+def test_html_index_lists_transaction_and_links_to_detail(client, db_session, admin_headers):
     intent, *_ = _full_transaction(db_session)
 
-    response = client.get("/audit")
+    response = client.get("/audit", headers=admin_headers)
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -179,10 +263,15 @@ def test_html_index_lists_transaction_and_links_to_detail(client, db_session):
     assert f"/audit/{intent.id}" in response.text
 
 
-def test_html_detail_shows_full_chain(client, db_session):
+def test_html_index_requires_authentication(client):
+    response = client.get("/audit")
+    assert response.status_code == 401
+
+
+def test_html_detail_shows_full_chain(client, db_session, admin_headers):
     intent, cart, failed_payment, retried_payment = _full_transaction(db_session)
 
-    response = client.get(f"/audit/{intent.id}")
+    response = client.get(f"/audit/{intent.id}", headers=admin_headers)
 
     assert response.status_code == 200
     text = response.text
@@ -193,12 +282,12 @@ def test_html_detail_shows_full_chain(client, db_session):
     assert "executed" in text
 
 
-def test_html_detail_404_for_unknown_intent(client):
-    response = client.get(f"/audit/{uuid.uuid4()}")
+def test_html_detail_404_for_unknown_intent(client, admin_headers):
+    response = client.get(f"/audit/{uuid.uuid4()}", headers=admin_headers)
     assert response.status_code == 404
 
 
-def test_html_escapes_raw_text_to_prevent_xss(client, db_session):
+def test_html_escapes_raw_text_to_prevent_xss(client, db_session, admin_headers):
     customer = _customer(db_session)
     intent = IntentMandate(
         customer_id=customer.id,
@@ -211,7 +300,7 @@ def test_html_escapes_raw_text_to_prevent_xss(client, db_session):
     record_transition(db_session, "intent", intent.id, None, "draft", "customer", "h")
     db_session.commit()
 
-    response = client.get("/audit")
+    response = client.get("/audit", headers=admin_headers)
 
     assert "<script>alert(1)</script>" not in response.text
     assert "&lt;script&gt;" in response.text

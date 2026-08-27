@@ -7,7 +7,6 @@ import type { AuditLogEntry } from '@/lib/types'
 const conversation = useConversationStore()
 const entries = ref<AuditLogEntry[]>([])
 const loading = ref(false)
-const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8123'
 
 let pollHandle: ReturnType<typeof setInterval> | null = null
 
@@ -75,15 +74,6 @@ function relativeTime(iso: string): string {
         >
           Refresh
         </button>
-        <a
-          v-if="conversation.intentId"
-          class="text-xs text-slate-400 underline hover:no-underline"
-          :href="`${apiBase}/audit/${conversation.intentId}`"
-          target="_blank"
-          rel="noopener"
-        >
-          Raw view ↗
-        </a>
       </div>
     </div>
 

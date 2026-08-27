@@ -1,8 +1,19 @@
-"""Minimal audit trail view (CLAUDE.md §11 P2.4) — the append-only audit_log
-table already *is* the audit trail (§3.2); this just makes it visible
-without a database client, for demo/review purposes. No auth: there is
-none anywhere else in this API yet, and this is a read-only internal
-reviewer tool, not a buyer-facing surface."""
+"""Audit trail view (CLAUDE.md §11 P2.4, gated per §13/SCRUM-45). The
+append-only audit_log table already *is* the audit trail (§3.2); this makes
+it visible without a database client.
+
+Access model for the per-transaction JSON endpoint is deliberately not
+admin-only: the customer-facing chat sidebar (web/src/components/AuditTrail.vue)
+has depended on GET /api/audit/transactions/{intent_id} since before RBAC
+existed, to show the live mandate-transition trail for a customer's own
+in-progress purchase — that's a real, already-shipped feature, not
+incidental exposure. Locking it to admin-only would silently break it. So:
+a customer may fetch only their own intent's trail; an admin may fetch any.
+Listing across every transaction (no intent_id given) has no such
+customer-facing use and is admin-only, as is the raw HTML debug view (which
+a plain browser navigation can't authenticate anyway, since this app has no
+cookie/session auth — only bearer tokens attached by the SPA's own fetch
+calls)."""
 
 import html
 import uuid
@@ -12,6 +23,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.dependencies.auth import get_current_user, require_role
+from app.models import User
 from app.schemas.audit import AuditLogOut, TransactionAuditOut
 from app.services.audit import get_transaction_audit_trail, list_recent_transactions
 
@@ -31,7 +44,9 @@ a {{ color: #0645ad; }}
 
 
 @router.get("/api/audit/transactions", response_model=list[TransactionAuditOut])
-def api_list_transactions(limit: int = 50, db: Session = Depends(get_db)):
+def api_list_transactions(
+    limit: int = 50, db: Session = Depends(get_db), _admin: User = Depends(require_role("admin"))
+):
     intents = list_recent_transactions(db, limit=limit)
     out = []
     for intent in intents:
@@ -41,11 +56,20 @@ def api_list_transactions(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @router.get("/api/audit/transactions/{intent_id}", response_model=TransactionAuditOut)
-def api_get_transaction(intent_id: uuid.UUID, db: Session = Depends(get_db)):
+def api_get_transaction(
+    intent_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     try:
         trail = get_transaction_audit_trail(db, intent_id)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+    is_owner = current_user.role == "customer" and trail.intent.customer_id == current_user.customer_id
+    if current_user.role != "admin" and not is_owner:
+        # 404, not 403 — don't confirm to a non-owning customer that this
+        # transaction even exists.
+        raise HTTPException(status_code=404, detail=f"intent mandate {intent_id} not found")
+
     return _to_transaction_out(trail)
 
 
@@ -53,14 +77,18 @@ def _to_transaction_out(trail) -> TransactionAuditOut:
     return TransactionAuditOut(
         intent_id=trail.intent.id,
         intent_status=trail.intent.status,
+        intent_signature=trail.intent.signature,
         cart_ids=[c.id for c in trail.carts],
+        cart_signatures=[c.signature for c in trail.carts if c.signature],
         payment_ids=[p.id for p in trail.payments],
+        payment_statuses=[p.status for p in trail.payments],
+        payment_signature_verified=[p.signature_verified for p in trail.payments],
         entries=[AuditLogOut.model_validate(e) for e in trail.entries],
     )
 
 
 @router.get("/audit", response_class=HTMLResponse)
-def audit_index(limit: int = 50, db: Session = Depends(get_db)):
+def audit_index(limit: int = 50, db: Session = Depends(get_db), _admin: User = Depends(require_role("admin"))):
     intents = list_recent_transactions(db, limit=limit)
     rows = "\n".join(
         f"<tr><td><a href='/audit/{i.id}'>{i.id}</a></td>"
@@ -78,7 +106,9 @@ def audit_index(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @router.get("/audit/{intent_id}", response_class=HTMLResponse)
-def audit_transaction(intent_id: uuid.UUID, db: Session = Depends(get_db)):
+def audit_transaction(
+    intent_id: uuid.UUID, db: Session = Depends(get_db), _admin: User = Depends(require_role("admin"))
+):
     try:
         trail = get_transaction_audit_trail(db, intent_id)
     except LookupError as e:

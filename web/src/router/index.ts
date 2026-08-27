@@ -55,16 +55,28 @@ const router = createRouter({
       component: () => import('@/views/MerchantProductsView.vue'),
       meta: { requiresAuth: true, role: 'merchant' },
     },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('@/views/AdminDashboardView.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/transactions/:intentId',
+      name: 'admin-transaction',
+      component: () => import('@/views/AdminTransactionView.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 
 /** Where an authenticated user lands when redirected away from a route that
- * isn't theirs (a role mismatch, or a public-only page like /login). Admin
- * has no home yet (SCRUM-45) — falls back to /login rather than a 404. */
+ * isn't theirs (a role mismatch, or a public-only page like /login). */
 function roleHome(role: 'admin' | 'merchant' | 'customer' | undefined) {
   if (role === 'merchant') return { path: '/merchant/products' }
   if (role === 'customer') return { path: '/' }
+  if (role === 'admin') return { path: '/admin' }
   return { path: '/login' }
 }
 

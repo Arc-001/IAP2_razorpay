@@ -27,6 +27,13 @@ class TransactionSummary(BaseModel):
 class TransactionAuditOut(BaseModel):
     intent_id: uuid.UUID
     intent_status: str
+    intent_signature: str | None
     cart_ids: list[uuid.UUID]
+    cart_signatures: list[str]
     payment_ids: list[uuid.UUID]
+    payment_statuses: list[str]
+    payment_signature_verified: list[bool]
+    """payment_mandates has no HMAC .signature field (only signature_verified:
+    bool) — this is the honest equivalent for payments: whether the Razorpay
+    webhook signature was verified, not a JWT string like Intent/Cart carry."""
     entries: list[AuditLogOut]

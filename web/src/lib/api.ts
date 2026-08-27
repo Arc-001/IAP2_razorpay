@@ -90,6 +90,10 @@ export function getAuditTrail(intentId: string): Promise<TransactionAuditOut> {
   return get(`/api/audit/transactions/${intentId}`)
 }
 
+export function getAllTransactions(): Promise<TransactionAuditOut[]> {
+  return get('/api/audit/transactions')
+}
+
 export function getMyConversations(): Promise<ConversationSummary[]> {
   return get('/api/me/conversations')
 }

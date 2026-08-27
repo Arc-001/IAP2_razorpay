@@ -72,8 +72,12 @@ export interface AuditLogEntry {
 export interface TransactionAuditOut {
   intent_id: string
   intent_status: string
+  intent_signature: string | null
   cart_ids: string[]
+  cart_signatures: string[]
   payment_ids: string[]
+  payment_statuses: string[]
+  payment_signature_verified: boolean[]
   entries: AuditLogEntry[]
 }
 
