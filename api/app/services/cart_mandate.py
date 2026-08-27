@@ -8,6 +8,7 @@ from app.models import CartMandate, Customer, IntentMandate
 from app.repositories.catalog import SqlAlchemyCatalogRepository
 from app.schemas.cart import CartDraftRequest
 from app.services.audit import record_transition
+from app.services.customer_addresses import address_to_dict, get_default_address
 from app.services.mandate_signing import hash_payload, sign_mandate
 from app.services.price_history import price_has_risen_significantly
 
@@ -24,6 +25,9 @@ def _resolve_shipping_address(db: Session, customer: Customer, provided: dict | 
         customer.saved_address = provided
         db.flush()
         return provided
+    default_address = get_default_address(db, customer.id)
+    if default_address is not None:
+        return address_to_dict(default_address)
     if customer.saved_address:
         return customer.saved_address
     raise ValueError("no saved address on file — shipping_address is required")

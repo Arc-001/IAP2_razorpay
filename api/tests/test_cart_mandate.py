@@ -62,6 +62,23 @@ def test_draft_cart_uses_saved_address_automatically(client, db_session):
     assert body["signature"] is None
 
 
+def test_draft_cart_prefers_customer_addresses_table_over_legacy_column(client, db_session):
+    from app.services.customer_addresses import create_address
+
+    customer = _make_customer(db_session, saved_address={"line1": "OLD legacy address"})
+    create_address(db_session, customer.id, line1="NEW saved address", city="Pune")
+    intent = _make_intent(db_session, customer)
+    product = _make_product(db_session)
+
+    response = client.post(
+        "/api/cart",
+        json={"intent_mandate_id": str(intent.id), "items": [{"product_id": str(product.id), "quantity": 1}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["shipping_address"]["line1"] == "NEW saved address"
+
+
 def test_draft_cart_requires_address_when_none_available(client, db_session):
     customer = _make_customer(db_session, saved_address=None)
     intent = _make_intent(db_session, customer)

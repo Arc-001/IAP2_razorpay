@@ -28,6 +28,7 @@ function logout() {
       <div class="flex items-center gap-3">
         <span class="text-xs text-slate-400">{{ auth.user?.email }}</span>
         <RouterLink to="/history" class="text-xs text-slate-400 underline hover:no-underline">History</RouterLink>
+        <RouterLink to="/profile" class="text-xs text-slate-400 underline hover:no-underline">Profile</RouterLink>
         <button class="text-xs text-slate-400 underline hover:no-underline" @click="startOver">Start Over</button>
         <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
       </div>

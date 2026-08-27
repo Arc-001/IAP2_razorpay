@@ -1,9 +1,12 @@
 import type {
+  Address,
+  AddressInput,
   ChatRequest,
   ChatResponse,
   ConversationDetail,
   ConversationSummary,
   PaymentMandateOut,
+  Profile,
   TokenResponse,
   TransactionAuditOut,
 } from './types'
@@ -43,6 +46,21 @@ async function post<T>(path: string, body: unknown, auth: boolean): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+  return res.json() as Promise<T>
+}
+
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new ApiError(res.status, await res.text())
+}
+
 export function postChat(req: ChatRequest): Promise<ChatResponse> {
   return post('/api/chat', req, true)
 }
@@ -75,4 +93,28 @@ export function getMyConversations(): Promise<ConversationSummary[]> {
 
 export function getConversation(conversationId: string): Promise<ConversationDetail> {
   return get(`/api/me/conversations/${conversationId}`)
+}
+
+export function getMyProfile(): Promise<Profile> {
+  return get('/api/me/profile')
+}
+
+export function updateMyProfile(fields: Partial<Pick<Profile, 'name' | 'contact'>>): Promise<Profile> {
+  return patch('/api/me/profile', fields)
+}
+
+export function getMyAddresses(): Promise<Address[]> {
+  return get('/api/me/addresses')
+}
+
+export function createAddress(input: AddressInput): Promise<Address> {
+  return post('/api/me/addresses', input, true)
+}
+
+export function updateAddress(addressId: string, fields: Partial<AddressInput>): Promise<Address> {
+  return patch(`/api/me/addresses/${addressId}`, fields)
+}
+
+export function deleteAddress(addressId: string): Promise<void> {
+  return del(`/api/me/addresses/${addressId}`)
 }

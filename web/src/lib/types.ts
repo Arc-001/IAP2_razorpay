@@ -228,3 +228,35 @@ export interface ConversationDetail extends ConversationSummary {
   history: ChatMessage[]
   display_log: DisplayEntry[]
 }
+
+// --- Profile & addresses (mirrors api/app/schemas/customer.py) ---
+
+export interface Profile {
+  id: string
+  name: string | null
+  contact: string | null
+}
+
+export interface Address {
+  id: string
+  label: string | null
+  line1: string
+  line2: string | null
+  city: string | null
+  state: string | null
+  postal_code: string | null
+  country: string
+  is_default: boolean
+  created_at: string
+}
+
+export interface AddressInput {
+  label?: string | null
+  line1: string
+  line2?: string | null
+  city?: string | null
+  state?: string | null
+  postal_code?: string | null
+  country?: string
+  is_default?: boolean
+}
