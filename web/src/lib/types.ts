@@ -27,7 +27,6 @@ export interface ToolCall {
 
 export interface ChatRequest {
   message: string
-  customer_id?: string
   intent_id?: string
   cart_id?: string
   payment_id?: string
@@ -191,4 +190,21 @@ export interface DisplayEntry {
 
 export function formatPaise(paise: number): string {
   return '₹' + (paise / 100).toLocaleString('en-IN')
+}
+
+// --- Auth (mirrors api/app/schemas/auth.py) ---
+
+export interface UserOut {
+  id: string
+  email: string
+  role: 'admin' | 'merchant' | 'customer'
+  customer_id: string | null
+  merchant_id: string | null
+  created_at: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user: UserOut
 }

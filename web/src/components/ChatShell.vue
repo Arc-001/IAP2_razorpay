@@ -1,22 +1,35 @@
 <script setup lang="ts">
 import { useConversationStore } from '@/stores/conversation'
+import { useAuthStore } from '@/stores/auth'
+import router from '@/router'
 import ChatPanel from './ChatPanel.vue'
 import MandateStepper from './MandateStepper.vue'
 import AuditTrail from './AuditTrail.vue'
 
 const conversation = useConversationStore()
+const auth = useAuthStore()
+
+function logout() {
+  conversation.startOver()
+  auth.logout()
+  router.push('/login')
+}
 </script>
 
 <template>
   <div class="flex h-screen flex-col bg-slate-100">
     <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
       <h1 class="text-sm font-semibold text-slate-800">AP2 Agentic Commerce — Demo Store</h1>
-      <button
-        class="text-xs text-slate-400 underline hover:no-underline"
-        @click="conversation.startOver()"
-      >
-        Start Over
-      </button>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-400">{{ auth.user?.email }}</span>
+        <button
+          class="text-xs text-slate-400 underline hover:no-underline"
+          @click="conversation.startOver()"
+        >
+          Start Over
+        </button>
+        <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
+      </div>
     </header>
 
     <div class="flex flex-1 gap-4 overflow-hidden p-4">

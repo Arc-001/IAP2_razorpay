@@ -66,3 +66,16 @@ def client(db_session):
     fastapi_app.dependency_overrides[get_db] = override_get_db
     yield TestClient(fastapi_app)
     fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def customer_headers(client):
+    """A freshly registered customer's Authorization header — most tests
+    that exercise the (now login-gated) chat/customer endpoints just need
+    *some* authenticated customer, not a specific one."""
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "test-customer@example.com", "password": "hunter2", "role": "customer", "name": "Test Customer"},
+    )
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

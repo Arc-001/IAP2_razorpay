@@ -1,4 +1,5 @@
-import type { ChatRequest, ChatResponse, PaymentMandateOut, TransactionAuditOut } from './types'
+import type { ChatRequest, ChatResponse, PaymentMandateOut, TokenResponse, TransactionAuditOut } from './types'
+import { getStoredToken } from '@/stores/auth'
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8123'
 
@@ -13,20 +14,43 @@ export class ApiError extends Error {
   }
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
   if (!res.ok) throw new ApiError(res.status, await res.text())
   return res.json() as Promise<T>
 }
 
-export async function postChat(req: ChatRequest): Promise<ChatResponse> {
-  const res = await fetch(`${BASE}/api/chat`, {
+async function post<T>(path: string, body: unknown, auth: boolean): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    headers: { 'Content-Type': 'application/json', ...(auth ? authHeaders() : {}) },
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new ApiError(res.status, await res.text())
-  return res.json() as Promise<ChatResponse>
+  return res.json() as Promise<T>
+}
+
+export function postChat(req: ChatRequest): Promise<ChatResponse> {
+  return post('/api/chat', req, true)
+}
+
+export function login(email: string, password: string): Promise<TokenResponse> {
+  return post('/api/auth/login', { email, password }, false)
+}
+
+export function register(
+  email: string,
+  password: string,
+  role: 'customer' | 'merchant',
+  name: string,
+  merchant_name?: string,
+): Promise<TokenResponse> {
+  return post('/api/auth/register', { email, password, role, name, merchant_name }, false)
 }
 
 export function getPaymentStatus(paymentId: string): Promise<PaymentMandateOut> {

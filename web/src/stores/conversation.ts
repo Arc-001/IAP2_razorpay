@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { postChat, ApiError } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
+import router from '@/router'
 import type { AgentState, ChatMessage, DisplayEntry } from '@/lib/types'
 
 const STORAGE_KEY = 'ap2_chat_session_v1'
@@ -66,7 +68,6 @@ export const useConversationStore = defineStore('conversation', {
       try {
         const response = await postChat({
           message: text,
-          customer_id: this.customerId ?? undefined,
           intent_id: this.intentId ?? undefined,
           cart_id: this.cartId ?? undefined,
           payment_id: this.paymentId ?? undefined,
@@ -87,7 +88,12 @@ export const useConversationStore = defineStore('conversation', {
         })
         this.persist()
       } catch (err) {
-        this.error = err instanceof ApiError ? err.message : 'Could not reach the server. Please try again.'
+        if (err instanceof ApiError && err.status === 401) {
+          useAuthStore().logout()
+          router.push('/login')
+        } else {
+          this.error = err instanceof ApiError ? err.message : 'Could not reach the server. Please try again.'
+        }
       } finally {
         this.isSending = false
       }

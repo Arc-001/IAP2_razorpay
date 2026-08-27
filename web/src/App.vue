@@ -1,7 +1,5 @@
-<script setup lang="ts">
-import ChatShell from './components/ChatShell.vue'
-</script>
+<script setup lang="ts"></script>
 
 <template>
-  <ChatShell />
+  <RouterView />
 </template>
