@@ -34,9 +34,11 @@ class Product(Base):
     merchant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("merchants.id"))
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(Text)
     price: Mapped[int] = mapped_column(nullable=False)  # smallest currency subunit (paise)
     currency: Mapped[str] = mapped_column(Text, server_default="INR")
     stock: Mapped[int | None] = mapped_column()
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=_now)
 
     merchant: Mapped["Merchant"] = relationship()

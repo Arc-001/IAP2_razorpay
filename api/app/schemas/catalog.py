@@ -11,6 +11,8 @@ class ProductOut(BaseModel):
     merchant_name: str
     name: str
     description: str | None
+    category: str | None
     price: int  # paise
     currency: str
     stock: int | None
+    tags: list[str]

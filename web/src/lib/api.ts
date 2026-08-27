@@ -5,6 +5,8 @@ import type {
   ChatResponse,
   ConversationDetail,
   ConversationSummary,
+  MerchantProduct,
+  MerchantProductInput,
   OrderSummary,
   PaymentMandateOut,
   Profile,
@@ -122,4 +124,23 @@ export function deleteAddress(addressId: string): Promise<void> {
 
 export function getMyOrders(): Promise<OrderSummary[]> {
   return get('/api/me/orders')
+}
+
+export function getMerchantProducts(): Promise<MerchantProduct[]> {
+  return get('/api/merchant/products')
+}
+
+export function createMerchantProduct(input: MerchantProductInput): Promise<MerchantProduct> {
+  return post('/api/merchant/products', input, true)
+}
+
+export function updateMerchantProduct(
+  productId: string,
+  fields: Partial<MerchantProductInput>,
+): Promise<MerchantProduct> {
+  return patch(`/api/merchant/products/${productId}`, fields)
+}
+
+export function deleteMerchantProduct(productId: string): Promise<void> {
+  return del(`/api/merchant/products/${productId}`)
 }

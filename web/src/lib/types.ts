@@ -275,3 +275,26 @@ export interface OrderSummary {
   payment_status: string | null
   razorpay_payment_id: string | null
 }
+
+// --- Merchant catalog (mirrors api/app/schemas/catalog.py ProductOut) ---
+
+export interface MerchantProduct {
+  id: string
+  merchant_id: string
+  merchant_name: string
+  name: string
+  description: string | null
+  category: string | null
+  price: number
+  currency: string
+  stock: number | null
+  tags: string[]
+}
+
+export interface MerchantProductInput {
+  name: string
+  description?: string | null
+  category?: string | null
+  price: number
+  stock?: number | null
+}
