@@ -25,6 +25,18 @@ const router = createRouter({
       component: () => import('@/views/CustomerChatView.vue'),
       meta: { requiresAuth: true, role: 'customer' },
     },
+    {
+      path: '/history',
+      name: 'history',
+      component: () => import('@/views/ConversationHistoryView.vue'),
+      meta: { requiresAuth: true, role: 'customer' },
+    },
+    {
+      path: '/history/:conversationId',
+      name: 'history-detail',
+      component: () => import('@/views/ConversationResumeView.vue'),
+      meta: { requiresAuth: true, role: 'customer' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

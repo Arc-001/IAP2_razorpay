@@ -27,6 +27,7 @@ export interface ToolCall {
 
 export interface ChatRequest {
   message: string
+  conversation_id?: string
   intent_id?: string
   cart_id?: string
   payment_id?: string
@@ -36,6 +37,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   state: AgentState
   reply: string
+  conversation_id: string
   customer_id: string | null
   intent_id: string | null
   cart_id: string | null
@@ -207,4 +209,22 @@ export interface TokenResponse {
   access_token: string
   token_type: string
   user: UserOut
+}
+
+// --- Conversation history (mirrors api/app/schemas/customer.py) ---
+
+export interface ConversationSummary {
+  id: string
+  title: string | null
+  state: AgentState
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  intent_id: string | null
+  cart_id: string | null
+  payment_id: string | null
+  history: ChatMessage[]
+  display_log: DisplayEntry[]
 }

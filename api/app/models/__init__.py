@@ -1,4 +1,5 @@
 from app.models.auth import User
+from app.models.conversation import Conversation
 from app.models.mandates import (
     AuditLog,
     CartMandate,
@@ -13,6 +14,7 @@ from app.models.mandates import (
 __all__ = [
     "AuditLog",
     "CartMandate",
+    "Conversation",
     "Customer",
     "IntentMandate",
     "Merchant",

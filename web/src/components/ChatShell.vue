@@ -9,6 +9,11 @@ import AuditTrail from './AuditTrail.vue'
 const conversation = useConversationStore()
 const auth = useAuthStore()
 
+function startOver() {
+  conversation.startOver()
+  router.push('/')
+}
+
 function logout() {
   conversation.startOver()
   auth.logout()
@@ -22,12 +27,8 @@ function logout() {
       <h1 class="text-sm font-semibold text-slate-800">AP2 Agentic Commerce — Demo Store</h1>
       <div class="flex items-center gap-3">
         <span class="text-xs text-slate-400">{{ auth.user?.email }}</span>
-        <button
-          class="text-xs text-slate-400 underline hover:no-underline"
-          @click="conversation.startOver()"
-        >
-          Start Over
-        </button>
+        <RouterLink to="/history" class="text-xs text-slate-400 underline hover:no-underline">History</RouterLink>
+        <button class="text-xs text-slate-400 underline hover:no-underline" @click="startOver">Start Over</button>
         <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
       </div>
     </header>

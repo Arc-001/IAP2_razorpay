@@ -1,4 +1,12 @@
-import type { ChatRequest, ChatResponse, PaymentMandateOut, TokenResponse, TransactionAuditOut } from './types'
+import type {
+  ChatRequest,
+  ChatResponse,
+  ConversationDetail,
+  ConversationSummary,
+  PaymentMandateOut,
+  TokenResponse,
+  TransactionAuditOut,
+} from './types'
 import { getStoredToken } from '@/stores/auth'
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8123'
@@ -59,4 +67,12 @@ export function getPaymentStatus(paymentId: string): Promise<PaymentMandateOut> 
 
 export function getAuditTrail(intentId: string): Promise<TransactionAuditOut> {
   return get(`/api/audit/transactions/${intentId}`)
+}
+
+export function getMyConversations(): Promise<ConversationSummary[]> {
+  return get('/api/me/conversations')
+}
+
+export function getConversation(conversationId: string): Promise<ConversationDetail> {
+  return get(`/api/me/conversations/${conversationId}`)
 }

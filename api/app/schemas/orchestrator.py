@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
+    conversation_id: uuid.UUID | None = None
     intent_id: uuid.UUID | None = None
     cart_id: uuid.UUID | None = None
     payment_id: uuid.UUID | None = None
@@ -14,6 +15,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     state: str
     reply: str
+    conversation_id: uuid.UUID
     customer_id: uuid.UUID | None
     intent_id: uuid.UUID | None
     cart_id: uuid.UUID | None
