@@ -2,12 +2,10 @@
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getMyConversations, ApiError } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth'
 import { useConversationStore } from '@/stores/conversation'
 import router from '@/router'
 import type { ConversationSummary } from '@/lib/types'
 
-const auth = useAuthStore()
 const conversation = useConversationStore()
 
 const conversations = ref<ConversationSummary[]>([])
@@ -18,10 +16,8 @@ onMounted(async () => {
   try {
     conversations.value = await getMyConversations()
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      auth.logout()
-      router.push('/login')
-    } else {
+    // A 401 already triggers logout + redirect inside lib/api.ts.
+    if (!(err instanceof ApiError && err.status === 401)) {
       error.value = 'Could not load your conversations.'
     }
   } finally {

@@ -25,10 +25,8 @@ const price = ref<number | null>(null)
 const stock = ref<number | null>(null)
 
 function handleError(err: unknown, fallback: string) {
-  if (err instanceof ApiError && err.status === 401) {
-    auth.logout()
-    router.push('/login')
-  } else {
+  // A 401 already triggers logout + redirect inside lib/api.ts.
+  if (!(err instanceof ApiError && err.status === 401)) {
     error.value = fallback
   }
 }
@@ -91,7 +89,12 @@ function logout() {
 <template>
   <div class="min-h-screen bg-slate-100">
     <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-      <h1 class="text-sm font-semibold text-slate-800">{{ auth.user?.email }} — Merchant catalog</h1>
+      <h1 class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">
+          {{ auth.user?.role }}
+        </span>
+        {{ auth.user?.email }} — Merchant catalog
+      </h1>
       <button class="text-xs text-slate-400 underline hover:no-underline" @click="logout">Log out</button>
     </header>
 

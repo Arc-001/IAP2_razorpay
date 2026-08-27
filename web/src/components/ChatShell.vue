@@ -26,6 +26,9 @@ function logout() {
     <header class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
       <h1 class="text-sm font-semibold text-slate-800">AP2 Agentic Commerce — Demo Store</h1>
       <div class="flex items-center gap-3">
+        <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-500">
+          {{ auth.user?.role }}
+        </span>
         <span class="text-xs text-slate-400">{{ auth.user?.email }}</span>
         <RouterLink to="/history" class="text-xs text-slate-400 underline hover:no-underline">History</RouterLink>
         <RouterLink to="/profile" class="text-xs text-slate-400 underline hover:no-underline">Profile</RouterLink>

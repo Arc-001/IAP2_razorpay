@@ -13,7 +13,8 @@ import type {
   TokenResponse,
   TransactionAuditOut,
 } from './types'
-import { getStoredToken } from '@/stores/auth'
+import { getStoredToken, useAuthStore } from '@/stores/auth'
+import router from '@/router'
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8123'
 
@@ -33,20 +34,32 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
+/** A 401 on an authenticated request means the session is gone (expired,
+ * revoked, server restarted with a new secret) — handled once, here, rather
+ * than duplicated in every caller. Login/register calls opt out (`authed:
+ * false`): a wrong password there is an expected user-facing error, not a
+ * dead session. */
+async function handleResponse<T>(res: Response, authed: boolean): Promise<T> {
+  if (authed && res.status === 401) {
+    useAuthStore().logout()
+    router.push('/login')
+  }
   if (!res.ok) throw new ApiError(res.status, await res.text())
   return res.json() as Promise<T>
 }
 
-async function post<T>(path: string, body: unknown, auth: boolean): Promise<T> {
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
+  return handleResponse<T>(res, true)
+}
+
+async function post<T>(path: string, body: unknown, authed: boolean): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(auth ? authHeaders() : {}) },
+    headers: { 'Content-Type': 'application/json', ...(authed ? authHeaders() : {}) },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new ApiError(res.status, await res.text())
-  return res.json() as Promise<T>
+  return handleResponse<T>(res, authed)
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
@@ -55,12 +68,15 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new ApiError(res.status, await res.text())
-  return res.json() as Promise<T>
+  return handleResponse<T>(res, true)
 }
 
 async function del(path: string): Promise<void> {
   const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
+  if (res.status === 401) {
+    useAuthStore().logout()
+    router.push('/login')
+  }
   if (!res.ok) throw new ApiError(res.status, await res.text())
 }
 

@@ -10,11 +10,7 @@ import {
   deleteAddress,
   ApiError,
 } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
 import type { Address, Profile } from '@/lib/types'
-
-const auth = useAuthStore()
 
 const profile = ref<Profile | null>(null)
 const addresses = ref<Address[]>([])
@@ -31,10 +27,8 @@ const newState = ref('')
 const newPostalCode = ref('')
 
 function handleError(err: unknown, fallback: string) {
-  if (err instanceof ApiError && err.status === 401) {
-    auth.logout()
-    router.push('/login')
-  } else {
+  // A 401 already triggers logout + redirect inside lib/api.ts.
+  if (!(err instanceof ApiError && err.status === 401)) {
     error.value = fallback
   }
 }

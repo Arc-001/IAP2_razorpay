@@ -3,11 +3,7 @@ import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getMyOrders, ApiError } from '@/lib/api'
 import { formatPaise } from '@/lib/types'
-import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
 import type { OrderSummary } from '@/lib/types'
-
-const auth = useAuthStore()
 
 const orders = ref<OrderSummary[]>([])
 const isLoading = ref(true)
@@ -17,10 +13,8 @@ onMounted(async () => {
   try {
     orders.value = await getMyOrders()
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      auth.logout()
-      router.push('/login')
-    } else {
+    // A 401 already triggers logout + redirect inside lib/api.ts.
+    if (!(err instanceof ApiError && err.status === 401)) {
       error.value = 'Could not load your orders.'
     }
   } finally {

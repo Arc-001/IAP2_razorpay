@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { postChat, getConversation, ApiError } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
 import type { AgentState, ChatMessage, DisplayEntry } from '@/lib/types'
 
 interface PersistedShape {
@@ -91,10 +90,9 @@ export const useConversationStore = defineStore('conversation', {
         this.state = conversation.state
         this.persist()
       } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          useAuthStore().logout()
-          router.push('/login')
-        } else {
+        // A 401 already triggers logout + redirect inside lib/api.ts — no
+        // need to duplicate that here, just skip the error message for it.
+        if (!(err instanceof ApiError && err.status === 401)) {
           this.error = 'Could not load that conversation.'
         }
       } finally {
@@ -134,10 +132,7 @@ export const useConversationStore = defineStore('conversation', {
         })
         this.persist()
       } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          useAuthStore().logout()
-          router.push('/login')
-        } else {
+        if (!(err instanceof ApiError && err.status === 401)) {
           this.error = err instanceof ApiError ? err.message : 'Could not reach the server. Please try again.'
         }
       } finally {

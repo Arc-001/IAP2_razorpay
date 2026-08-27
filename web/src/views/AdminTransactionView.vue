@@ -2,12 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { getAuditTrail, ApiError } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
 import type { TransactionAuditOut } from '@/lib/types'
 
 const route = useRoute()
-const auth = useAuthStore()
 
 const trail = ref<TransactionAuditOut | null>(null)
 const isLoading = ref(true)
@@ -17,10 +14,8 @@ onMounted(async () => {
   try {
     trail.value = await getAuditTrail(route.params.intentId as string)
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
-      auth.logout()
-      router.push('/login')
-    } else {
+    // A 401 already triggers logout + redirect inside lib/api.ts.
+    if (!(err instanceof ApiError && err.status === 401)) {
       error.value = 'Could not load this transaction.'
     }
   } finally {
