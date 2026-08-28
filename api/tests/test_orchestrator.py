@@ -617,7 +617,12 @@ def test_create_payment_tool_dispatches_to_adapter(monkeypatch, db_session):
     assert result.state == AgentState.EXECUTING_PAYMENT
 
 
-def test_terminal_state_exposes_no_tools(monkeypatch, db_session):
+def test_terminal_state_exposes_only_check_payment_status(monkeypatch, db_session):
+    """Regression test: check_payment_status must survive into TERMINAL.
+    The async webhook can flip pending -> executed *after* the model's last
+    real information, and a customer asking "did it go through?" right at
+    that moment needs a grounded answer, not a hallucinated one from a model
+    with zero tools left to verify against."""
     from app.models import PaymentMandate
 
     customer = _customer(db_session, saved_address={"line1": "x"})
@@ -644,7 +649,53 @@ def test_terminal_state_exposes_no_tools(monkeypatch, db_session):
         "thanks",
     )
 
-    assert fake.calls[0]["tools"] is None
+    tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
+    assert tool_names == {"check_payment_status"}
+    assert result.state == AgentState.TERMINAL
+
+
+def test_asking_did_it_go_through_after_terminal_gets_a_grounded_answer(monkeypatch, db_session):
+    """The exact bug reported live: webhook resolves the payment to executed,
+    then the customer asks "did my payment go through?" — the model must
+    actually call check_payment_status and report the real status, not
+    restate stale "pending" from earlier in the conversation."""
+    from app.models import PaymentMandate
+
+    customer = _customer(db_session, saved_address={"line1": "x"})
+    intent = _confirmed_intent(db_session, customer)
+    cart = CartMandate(
+        intent_mandate_id=intent.id,
+        items=[],
+        total_amount=10000,
+        shipping_address={"line1": "x"},
+        status="confirmed",
+        signature="s",
+        confirmed_at=datetime.now(UTC),
+    )
+    db_session.add(cart)
+    db_session.flush()
+    payment = PaymentMandate(
+        cart_mandate_id=cart.id, amount=10000, status="executed", razorpay_payment_id="pay_x"
+    )
+    db_session.add(payment)
+    db_session.commit()
+
+    call = _tool_call("call_1", "check_payment_status", {})
+    _patch_client(
+        monkeypatch,
+        [
+            _response(_message(tool_calls=[call])),
+            _response(_message(content="Good news — your payment went through successfully!")),
+        ],
+    )
+    result = run_turn(
+        db_session,
+        MandateContext(customer_id=customer.id, intent_id=intent.id, cart_id=cart.id, payment_id=payment.id),
+        "did my payment go through?",
+    )
+
+    assert result.tool_calls[0]["tool"] == "check_payment_status"
+    assert result.tool_calls[0]["output"]["status"] == "executed"
     assert result.state == AgentState.TERMINAL
 
 
@@ -768,7 +819,7 @@ def _failed_payment(db_session, cart, amount=10000) -> PaymentMandate:
     return payment
 
 
-def test_payment_failed_exposes_retry_and_cancel_only(monkeypatch, db_session):
+def test_payment_failed_exposes_retry_cancel_and_check_status(monkeypatch, db_session):
     customer = _customer(db_session, saved_address={"line1": "x"})
     intent = _confirmed_intent(db_session, customer)
     cart = _confirmed_cart(db_session, intent)
@@ -784,7 +835,7 @@ def test_payment_failed_exposes_retry_and_cancel_only(monkeypatch, db_session):
     )
 
     tool_names = {t["function"]["name"] for t in fake.calls[0]["tools"]}
-    assert tool_names == {"retry_payment", "cancel_payment"}
+    assert tool_names == {"retry_payment", "cancel_payment", "check_payment_status"}
     assert result.state == AgentState.PAYMENT_FAILED
 
 

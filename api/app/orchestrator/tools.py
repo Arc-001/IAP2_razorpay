@@ -396,8 +396,17 @@ TOOLS_BY_STATE: dict[AgentState, list[ToolDef]] = {
         _CONFIRM_CART,
     ],
     AgentState.EXECUTING_PAYMENT: [_CREATE_PAYMENT, _CHECK_PAYMENT_STATUS],
-    AgentState.PAYMENT_FAILED: [_RETRY_PAYMENT, _CANCEL_PAYMENT],
-    AgentState.TERMINAL: [],
+    # check_payment_status stays available past payment resolution too — it's
+    # read-only and idempotent, and dropping it here was a real bug: the async
+    # webhook can flip pending -> executed/failed *after* the model's last
+    # real information, and a customer asking "did it go through?" right at
+    # that moment got a hallucinated answer (the model restating stale
+    # history) instead of a grounded one, because it had no tool left to
+    # actually check. The system prompt already promised "check_payment_status
+    # is available throughout payment, never claim otherwise" — this makes
+    # that promise true instead of contradicting it.
+    AgentState.PAYMENT_FAILED: [_RETRY_PAYMENT, _CANCEL_PAYMENT, _CHECK_PAYMENT_STATUS],
+    AgentState.TERMINAL: [_CHECK_PAYMENT_STATUS],
 }
 
 
