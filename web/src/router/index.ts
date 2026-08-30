@@ -67,6 +67,17 @@ const router = createRouter({
       component: () => import('@/views/AdminTransactionView.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
+    {
+      path: '/oauth/consent',
+      name: 'oauth-consent',
+      component: () => import('@/views/OAuthConsentView.vue'),
+      // Neither `public` nor `requiresAuth`: unlike /login, this route must
+      // stay reachable for an ALREADY-authenticated customer too — that's
+      // the common case (clicking Connect while already logged into the
+      // website) — so it can't use `public` (the guard below redirects an
+      // authenticated user away from any `public` route). The component
+      // itself branches on auth.isAuthenticated to show login-then-consent.
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

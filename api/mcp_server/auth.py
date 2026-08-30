@@ -14,6 +14,8 @@ streamable-http responses are streamed (SSE-style), and BaseHTTPMiddleware
 buffers the whole response body before forwarding it, which breaks that.
 """
 
+import json
+
 import jwt
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -21,6 +23,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.db import SessionLocal
 from app.models import User
 from app.services.auth_tokens import decode_access_token
+
+PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 
 
 class BearerAuthMiddleware:
@@ -68,6 +72,30 @@ class BearerAuthMiddleware:
         scope["state"]["customer_id"] = str(user.customer_id)
         scope["state"]["user_id"] = str(user.id)
 
+        await self.app(scope, receive, send)
+
+
+class ProtectedResourceMetadataMiddleware:
+    """Serves GET /.well-known/oauth-protected-resource (RFC 9728) —
+    unauthenticated by necessity, since it's how a client discovers *where*
+    to authenticate before it has ever obtained a token. Sits in front of
+    BearerAuthMiddleware in the ASGI chain (see server.py) so this one path
+    never reaches it and everything else is unaffected; BearerAuthMiddleware
+    itself stays exactly as it was."""
+
+    def __init__(self, app: ASGIApp, *, resource: str, authorization_server: str) -> None:
+        self.app = app
+        self._body = json.dumps(
+            {"resource": resource, "authorization_servers": [authorization_server]}
+        ).encode()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"] == PROTECTED_RESOURCE_METADATA_PATH:
+            await send(
+                {"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"application/json")]}
+            )
+            await send({"type": "http.response.body", "body": self._body})
+            return
         await self.app(scope, receive, send)
 
 

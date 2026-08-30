@@ -12,6 +12,7 @@ from app.routers import (
     health,
     intent,
     merchant,
+    oauth,
     payment,
     webhooks,
 )
@@ -37,3 +38,4 @@ app.include_router(chat.router)
 app.include_router(customer.router)
 app.include_router(merchant.router)
 app.include_router(audit.router)
+app.include_router(oauth.router)

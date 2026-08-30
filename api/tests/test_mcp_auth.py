@@ -115,3 +115,30 @@ def test_valid_customer_token_is_accepted_and_scoped(db_session):
 
     assert response.status_code == 200
     assert response.json()["customer_id"] == str(user.customer_id)
+
+
+def _client_with_metadata() -> TestClient:
+    inner = Starlette(routes=[Route("/mcp", _echo_state, methods=["POST"])])
+    app = mcp_auth_module.ProtectedResourceMetadataMiddleware(
+        mcp_auth_module.BearerAuthMiddleware(inner),
+        resource="http://mcp.example.com/mcp",
+        authorization_server="http://backend.example.com",
+    )
+    return TestClient(app)
+
+
+def test_protected_resource_metadata_is_reachable_without_a_token():
+    response = _client_with_metadata().get(mcp_auth_module.PROTECTED_RESOURCE_METADATA_PATH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["resource"] == "http://mcp.example.com/mcp"
+    assert body["authorization_servers"] == ["http://backend.example.com"]
+
+
+def test_protected_resource_metadata_does_not_shadow_the_mcp_route(db_session):
+    """Only the exact metadata path is intercepted — /mcp itself still goes
+    through BearerAuthMiddleware exactly as before."""
+    response = _client_with_metadata().post("/mcp", json={})
+
+    assert response.status_code == 401

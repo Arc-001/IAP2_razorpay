@@ -37,5 +37,21 @@ class Settings(BaseSettings):
     # default dev port for the customer chat frontend (web/).
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # OAuth 2.1 + PKCE for the MCP server's connector flow (see plan "Add
+    # real OAuth to the MCP server"). Exactly one pre-registered client —
+    # no Dynamic Client Registration, no CIMD — client_id is ours to name,
+    # claude.ai enters it verbatim in "Use your own OAuth client" mode.
+    oauth_client_id: str = "ap2-claude-connector"
+    # Populated once the claude.ai live spike (plan Phase 6) reveals its
+    # actual callback URL. Validated as an exact match, never a prefix.
+    oauth_redirect_uris: list[str] = []
+    oauth_authorization_code_ttl_seconds: int = 60
+    # Short — OAuth-issued access tokens have a refresh path, unlike the
+    # website's own 24h login token (auth_jwt_expires_minutes), so there's
+    # no cost to rotating them often, and doing so shrinks the blast radius
+    # of a leaked token.
+    oauth_access_token_ttl_minutes: int = 60
+    oauth_refresh_token_ttl_days: int = 30
+
 
 settings = Settings()

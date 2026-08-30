@@ -299,10 +299,20 @@ def cancel_payment(payment_id: str) -> dict:
 if __name__ == "__main__":
     import uvicorn
 
-    from mcp_server.auth import BearerAuthMiddleware
+    from mcp_server.auth import BearerAuthMiddleware, ProtectedResourceMetadataMiddleware
 
     # Not mcp.run(transport="streamable-http") — that gives no hook to add our
     # own bearer-auth middleware. Build the same ASGI app it would have built,
     # wrap it, and run uvicorn ourselves instead.
-    app = BearerAuthMiddleware(mcp.streamable_http_app())
+    #
+    # Defaults are local-dev values; Phase 8 (deploy) sets these via env vars
+    # to the real public origins once both services sit behind stable domains.
+    mcp_public_origin = os.environ.get("MCP_PUBLIC_ORIGIN", f"http://127.0.0.1:{mcp.settings.port}")
+    backend_public_origin = os.environ.get("BACKEND_PUBLIC_ORIGIN", "http://127.0.0.1:8123")
+
+    app = ProtectedResourceMetadataMiddleware(
+        BearerAuthMiddleware(mcp.streamable_http_app()),
+        resource=f"{mcp_public_origin}/mcp",
+        authorization_server=backend_public_origin,
+    )
     uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port)

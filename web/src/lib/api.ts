@@ -88,6 +88,10 @@ export function login(email: string, password: string): Promise<TokenResponse> {
   return post('/api/auth/login', { email, password }, false)
 }
 
+export function approveOAuthAuthorization(requestId: string): Promise<{ redirect_to: string }> {
+  return post(`/oauth/authorize/${requestId}/approve`, {}, true)
+}
+
 export function register(
   email: string,
   password: string,

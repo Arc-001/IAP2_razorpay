@@ -11,6 +11,7 @@ from app.models.mandates import (
     PriceHistory,
     Product,
 )
+from app.models.oauth import OAuthRefreshToken
 
 __all__ = [
     "AuditLog",
@@ -20,6 +21,7 @@ __all__ = [
     "CustomerAddress",
     "IntentMandate",
     "Merchant",
+    "OAuthRefreshToken",
     "PaymentMandate",
     "PriceHistory",
     "Product",
