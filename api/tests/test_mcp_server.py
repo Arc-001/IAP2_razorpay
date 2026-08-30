@@ -1,6 +1,7 @@
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,6 +54,16 @@ def _fake_payment_link_adapter(monkeypatch):
     monkeypatch.setattr(mcp_server_module, "PaymentLinkAdapter", FakePaymentLinkAdapter)
 
 
+def _ctx(customer_id) -> SimpleNamespace:
+    """Stand-in for FastMCP's injected Context — propose_intent reads the
+    caller's customer_id off ctx.request_context.request.state, exactly what
+    mcp_server/auth.py's BearerAuthMiddleware sets on scope["state"] for a
+    real HTTP request."""
+    return SimpleNamespace(
+        request_context=SimpleNamespace(request=SimpleNamespace(state=SimpleNamespace(customer_id=str(customer_id))))
+    )
+
+
 def _customer(db_session, saved_address=None) -> Customer:
     customer = Customer(name="Test", saved_address=saved_address)
     db_session.add(customer)
@@ -93,7 +104,7 @@ def test_propose_intent_creates_draft(db_session):
     customer = _customer(db_session)
 
     result = propose_intent(
-        product_query="wireless earbuds", quantity=1, budget_paise=300000, customer_id=str(customer.id)
+        _ctx(customer.id), product_query="wireless earbuds", quantity=1, budget_paise=300000
     )
 
     assert result["status"] == "draft"
@@ -102,14 +113,20 @@ def test_propose_intent_creates_draft(db_session):
     assert row is not None
 
 
-def test_propose_intent_defaults_to_demo_customer_when_none_given(db_session):
-    result = propose_intent(product_query="a phone case")
-    assert result["status"] == "draft"
+def test_propose_intent_scopes_to_authenticated_customer_not_a_free_argument(db_session):
+    """propose_intent has no customer_id parameter at all — the caller can't
+    spoof it. It's derived solely from the verified bearer token via ctx."""
+    customer = _customer(db_session)
+
+    result = propose_intent(_ctx(customer.id), product_query="a phone case")
+
+    row = db_session.get(IntentMandate, uuid.UUID(result["intent_id"]))
+    assert row.customer_id == customer.id
 
 
 def test_confirm_intent_signs_draft(db_session):
     customer = _customer(db_session)
-    draft = propose_intent(product_query="earbuds", customer_id=str(customer.id))
+    draft = propose_intent(_ctx(customer.id), product_query="earbuds")
 
     result = confirm_intent(draft["intent_id"])
 
@@ -119,7 +136,7 @@ def test_confirm_intent_signs_draft(db_session):
 
 def test_confirm_intent_twice_returns_error_not_exception(db_session):
     customer = _customer(db_session)
-    draft = propose_intent(product_query="earbuds", customer_id=str(customer.id))
+    draft = propose_intent(_ctx(customer.id), product_query="earbuds")
     confirm_intent(draft["intent_id"])
 
     result = confirm_intent(draft["intent_id"])

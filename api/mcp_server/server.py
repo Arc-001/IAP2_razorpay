@@ -24,12 +24,24 @@ rejects an out-of-order call with a clear LookupError/ValueError
 (confirm_intent won't confirm a non-draft intent, create_payment_for_cart
 won't charge an unconfirmed cart, etc.) — that's structural, not prompted,
 regardless of which surface is calling it.
+
+Transport: streamable-http, not stdio — see plan "MCP server: stdio ->
+remote (streamable-http) transport". Every HTTP request is authenticated by
+mcp_server/auth.py's BearerAuthMiddleware using the exact same login token
+`/api/auth/login` issues — no separate auth infra, no free-form customer_id
+tool argument. propose_intent reads the caller's customer_id off the
+verified token (via Context), never from a parameter the model could get
+wrong or a malicious caller could spoof. Bind stays 127.0.0.1 until the
+deploy step puts nginx/TLS in front of it.
 """
 
+import logging
+import os
 import uuid
 from contextlib import contextmanager
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.adapters.payment_link import PaymentLinkAdapter
 from app.db import SessionLocal
@@ -46,6 +58,25 @@ from app.services.upsell import suggest_upsell_candidates
 
 mcp = FastMCP(
     "ap2-agentic-commerce",
+    host=os.environ.get("MCP_HOST", "127.0.0.1"),
+    port=int(os.environ.get("MCP_PORT", "8124")),
+    # The SDK's default DNS-rebinding protection only accepts a localhost-shaped
+    # Host header, which rejects every request that arrives via ngrok or a real
+    # domain (421 Invalid Host header) before it ever reaches our own auth.
+    # Disabling it is safe here specifically because BearerAuthMiddleware
+    # (mcp_server/auth.py) already requires a verified token on every request —
+    # a DNS-rebinding attack from a victim's browser still has no token, so the
+    # Host-header check buys nothing this app doesn't already enforce itself.
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    # Stateless: nothing here relies on server-held session memory — the
+    # calling model tracks mandate ids itself across turns, in its own
+    # conversation (see module docstring). A stateful in-memory session table
+    # only creates a failure mode: any server restart (a redeploy, a crash)
+    # silently orphans every connector's existing session, surfacing as a 404
+    # "Invalid or expired session ID" on their very next tool call. Remote
+    # connector infra (observed: rotating source IPs per request) isn't
+    # holding one sticky connection anyway, so stateful buys nothing here.
+    stateless_http=True,
     instructions=(
         "Guide the customer through: propose_intent -> confirm_intent -> "
         "search_catalog/propose_cart -> confirm_cart -> create_payment_link -> "
@@ -76,24 +107,37 @@ mcp = FastMCP(
 )
 
 
+logger = logging.getLogger("mcp_server")
+
+
 @contextmanager
 def _db():
+    """The MCP SDK's call_tool handler swallows every tool exception into a
+    generic client-facing message with zero server-side logging (mcp/server/
+    lowlevel/server.py: `except Exception as e: return
+    self._make_error_result(str(e))`) — without this, a real bug here is
+    completely undiagnosable. Every tool routes through this context manager,
+    so logging here covers the whole surface with one change."""
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        logger.exception("MCP tool call failed")
+        raise
     finally:
         db.close()
 
 
 @mcp.tool()
 def propose_intent(
+    ctx: Context,
     product_query: str,
     quantity: int = 1,
     budget_paise: int | None = None,
     constraints: list[str] | None = None,
-    customer_id: str | None = None,
 ) -> dict:
     """Draft a structured purchase intent. Must be confirmed by the human (confirm_intent) before searching the catalog."""
+    customer_id = ctx.request_context.request.state.customer_id
     with _db() as db:
         structured = IntentExtraction(
             product_query=product_query,
@@ -101,9 +145,7 @@ def propose_intent(
             budget_paise=budget_paise,
             constraints=constraints or [],
         )
-        mandate = create_draft_intent_from_structured(
-            db, uuid.UUID(customer_id) if customer_id else None, product_query, structured
-        )
+        mandate = create_draft_intent_from_structured(db, uuid.UUID(customer_id), product_query, structured)
         return {"intent_id": str(mandate.id), "status": mandate.status, "structured": mandate.structured_json}
 
 
@@ -255,4 +297,12 @@ def cancel_payment(payment_id: str) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    import uvicorn
+
+    from mcp_server.auth import BearerAuthMiddleware
+
+    # Not mcp.run(transport="streamable-http") — that gives no hook to add our
+    # own bearer-auth middleware. Build the same ASGI app it would have built,
+    # wrap it, and run uvicorn ourselves instead.
+    app = BearerAuthMiddleware(mcp.streamable_http_app())
+    uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port)
